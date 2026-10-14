@@ -1,14 +1,14 @@
+# Overview
+
+File Analyzer is a planned offline desktop utility for **Windows and macOS**. It will display metadata for audio, video, images, and Office documents in simple tables, support basic file comparisons, and generate static audio spectrograms. All file processing will stay on your computer.
+
+The project is currently in the planning stage. Source code and self-contained application packages are planned for distribution through GitHub.
+
 # File Analyzer
 
 一个面向 **Windows 和 macOS** 的离线桌面小工具：**拖入文件 → 查看参数 → 按需查看频谱**。
 
 本仓库目前处于项目规划阶段，仅包含需求与实现方向，尚未实现应用、安装程序或测试。以下功能均为初版开发目标，不代表已完成能力。
-
-## English Overview
-
-File Analyzer is a planned offline desktop utility for **Windows and macOS**. It will display metadata for audio, video, images, and Office documents in simple tables, support basic file comparisons, and generate static audio spectrograms. All file processing will stay on your computer.
-
-The project is currently in the planning stage. Source code and self-contained application packages are planned for distribution through GitHub.
 
 ## 项目目标
 
