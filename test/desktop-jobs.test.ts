@@ -122,6 +122,49 @@ test('只重试部分结果或失败任务；活动重试不会重复排队', as
   jobs.close();
 });
 
+test('移除活动任务会发出取消，等待清理后继续队列且不发布旧结果', async () => {
+  const cleanup = deferred<void>();
+  const events: DesktopEvent[] = [];
+  const calls: string[] = [];
+  let cancelled = false;
+  const jobs = new DesktopJobs((path, signal) => {
+    calls.push(path);
+    if (calls.length > 1) return Promise.resolve(result(path));
+    return new Promise<AnalysisResult>((_, reject) => {
+      signal!.addEventListener('abort', () => {
+        cancelled = true;
+        void cleanup.promise.then(() => reject(new Error('文件解析已取消。')));
+      }, { once: true });
+    });
+  }, event => events.push(event));
+  const [first, second] = jobs.register([resolve('slow.wav'), resolve('next.txt')]);
+  jobs.analyzeFiles([first!.id, second!.id]);
+  await setImmediate();
+  let removed = false;
+  const removing = jobs.removeFiles([first!.id]).then(() => { removed = true; });
+  await setImmediate();
+  assert.equal(cancelled, true);
+  assert.equal(removed, false);
+  assert.equal(calls.length, 1, 'The next tool must not start while cancelled tools are being reaped.');
+  cleanup.resolve();
+  await removing;
+  await setImmediate();
+  assert.equal(calls.length, 2);
+  assert.deepEqual(events.filter(event => event.type === 'result').map(event => event.id), [second!.id]);
+  await jobs.close();
+});
+
+test('分析微任务启动前移除文件不会调用解析器，也不阻止后续文件', async () => {
+  const calls: string[] = [];
+  const jobs = new DesktopJobs(async path => { calls.push(path); return result(path); }, () => {});
+  const [first, second] = jobs.register([resolve('removed.wav'), resolve('next.txt')]);
+  jobs.analyzeFiles([first!.id, second!.id]);
+  await jobs.removeFiles([first!.id]);
+  await setImmediate();
+  assert.deepEqual(calls, [second!.path]);
+  await jobs.close();
+});
+
 test('关闭会清空队列并丢弃活动结果', async () => {
   const pending = deferred<AnalysisResult>();
   const events: DesktopEvent[] = [];
@@ -212,4 +255,56 @@ test('刚创建 Worker 即关闭也等待退出，不允许延迟启动工具',
       }
       await assert.rejects(readFile(marker), { code: 'ENOENT' });
     } finally { await rm(dir, { recursive: true, force: true }); }
+  });
+
+test('移除真实元数据 Worker 会回收慢工具，无需超时即可解析后续文件和重新导入',
+  { skip: process.platform === 'win32', timeout: 10_000 }, async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'file-analyzer-remove-worker-'));
+    const audio = join(directory, 'slow.wav');
+    const text = join(directory, 'next.txt');
+    const tool = join(directory, 'ffprobe.cjs');
+    const marker = join(directory, 'tool.pid');
+    const analyzer = new WorkerAnalyzer({ ffprobePath: tool, timeoutMs: 60_000 });
+    const events: DesktopEvent[] = [];
+    const nextResult = deferred<void>();
+    const jobs = new DesktopJobs(analyzer.analyze, event => {
+      events.push(event);
+      if (event.type === 'result') nextResult.resolve();
+    });
+    let pid: number | undefined;
+    try {
+      await writeFile(audio, 'The WAV suffix routes this fixture to the deliberately slow tool.');
+      await writeFile(text, 'Offline text fixture.');
+      await writeFile(tool, `#!${process.execPath}\nprocess.on('SIGTERM', () => {}); require('node:fs').writeFileSync(${JSON.stringify(marker)}, String(process.pid)); setInterval(() => {}, 1000);\n`, { mode: 0o700 });
+      const [first, second] = jobs.register([audio, text]);
+      jobs.analyzeFiles([first!.id, second!.id]);
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        try { pid = Number(await readFile(marker, 'utf8')); break; }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+        await setTimeout(20);
+      }
+      assert.ok(pid, 'The real external tool must have started before removal.');
+      process.kill(pid, 0);
+      await jobs.removeFiles([first!.id]);
+      assert.throws(() => process.kill(pid!, 0), { code: 'ESRCH' });
+      await nextResult.promise;
+      assert.deepEqual(events.filter(event => event.type === 'result').map(event => event.id), [second!.id]);
+      // The shared analyzer stays open: the same removed path can be analyzed again.
+      await writeFile(audio, 'The file now contains plain text.');
+      const [replacement] = jobs.register([audio]);
+      assert.notEqual(replacement!.id, first!.id);
+      await writeFile(tool, `#!${process.execPath}\nprocess.stdout.write('{"streams":[{"index":0,"codec_type":"audio","codec_name":"pcm_s16le"}],"format":{}}');\n`, { mode: 0o700 });
+      jobs.analyzeFiles([replacement!.id]);
+      const replacementFinished = () => events.some(event => event.type === 'result' && event.id === replacement!.id);
+      const replacementDeadline = Date.now() + 3000;
+      while (!replacementFinished() && Date.now() < replacementDeadline) await setTimeout(20);
+      assert.ok(replacementFinished(), 'Removal must leave the analyzer usable for a new request.');
+      assert.equal(events.some(event => event.type === 'failed'), false);
+    } finally {
+      await jobs.close();
+      await analyzer.close();
+      if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+      await rm(directory, { recursive: true, force: true });
+    }
   });

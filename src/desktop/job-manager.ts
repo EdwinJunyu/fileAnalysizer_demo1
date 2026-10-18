@@ -4,7 +4,7 @@ import { Worker } from 'node:worker_threads';
 import type { AnalysisOptions, AnalysisResult, SpectrogramResult } from '../types.js';
 import type { DesktopEvent, DesktopFile } from './contracts.js';
 
-type Analyze = (path: string) => Promise<AnalysisResult>;
+type Analyze = (path: string, signal?: AbortSignal) => Promise<AnalysisResult>;
 type Entry = DesktopFile & {
   attempt: number;
   state: 'registered' | 'queued' | 'active' | 'done' | 'failed';
@@ -30,7 +30,7 @@ export class DesktopJobs {
   private readonly entries = new Map<string, Entry>();
   private readonly paths = new Map<string, string>();
   private readonly queue: Job[] = [];
-  private running = false;
+  private active: { id: string; controller: AbortController; pending: Promise<void> } | undefined;
   private closed = false;
   private spectrum: SpectrumJob | undefined;
 
@@ -87,6 +87,10 @@ export class DesktopJobs {
       cancelled.push(this.cancelSpectrogram(id));
       this.paths.delete(this.pathKey(entry.path));
       this.entries.delete(id);
+      if (this.active?.id === id) {
+        this.active.controller.abort();
+        cancelled.push(this.active.pending);
+      }
     }
     return Promise.all(cancelled).then(() => {});
   }
@@ -96,7 +100,12 @@ export class DesktopJobs {
     this.entries.clear();
     this.paths.clear();
     this.queue.length = 0;
-    return this.spectrum ? this.cancelSpectrogram(this.spectrum.id) : Promise.resolve();
+    const cleanup = this.spectrum ? [this.cancelSpectrogram(this.spectrum.id)] : [];
+    if (this.active) {
+      this.active.controller.abort();
+      cleanup.push(this.active.pending);
+    }
+    return Promise.all(cleanup).then(() => {});
   }
 
   generateSpectrogram(id: string, streamIndex: number): Promise<SpectrogramResult> {
@@ -155,7 +164,7 @@ export class DesktopJobs {
   }
 
   private pump(): void {
-    if (this.running || this.closed) return;
+    if (this.active || this.closed) return;
     let job: Job | undefined;
     let entry: Entry | undefined;
     while ((job = this.queue.shift())) {
@@ -168,11 +177,14 @@ export class DesktopJobs {
     if (!entry || !job) return;
     const activeJob = job;
     const activeEntry = entry;
-    this.running = true;
+    const active = { id: activeEntry.id, controller: new AbortController(), pending: undefined! as Promise<void> };
+    this.active = active;
     activeEntry.state = 'active';
-    this.emit({ type: 'started', id: activeEntry.id });
     // The microtask also catches a synchronous analyzer failure, so the next file still runs.
-    void Promise.resolve().then(() => this.analyze(activeEntry.path)).then(result => {
+    active.pending = Promise.resolve().then(() => {
+      if (active.controller.signal.aborted) throw new Error('文件解析已取消。');
+      return this.analyze(activeEntry.path, active.controller.signal);
+    }).then(result => {
       if (!this.isCurrent(activeJob)) return;
       activeEntry.state = 'done';
       activeEntry.result = result;
@@ -183,9 +195,10 @@ export class DesktopJobs {
       this.emit({ type: 'failed', id: activeEntry.id,
         message: error instanceof Error ? error.message : '文件分析失败，请重试。' });
     }).finally(() => {
-      this.running = false;
+      if (this.active === active) this.active = undefined;
       this.pump();
     });
+    this.emit({ type: 'started', id: activeEntry.id });
   }
 
   private isCurrent(job: Job): boolean {
@@ -201,21 +214,28 @@ export class WorkerAnalyzer {
 
   constructor(private readonly options: AnalysisOptions = {}) {}
 
-  analyze = (path: string): Promise<AnalysisResult> => {
-    return this.run<AnalysisResult>({ operation: 'analyze', path });
+  analyze = (path: string, signal?: AbortSignal): Promise<AnalysisResult> => {
+    return this.run<AnalysisResult>({ operation: 'analyze', path }, signal);
   };
 
   generateSpectrogram = (path: string, streamIndex: number): Promise<SpectrogramResult> => {
     return this.run<SpectrogramResult>({ operation: 'spectrogram', path, streamIndex });
   };
 
-  private run<T>(request: { operation: 'analyze' | 'spectrogram'; path: string; streamIndex?: number }): Promise<T> {
+  private run<T>(request: { operation: 'analyze' | 'spectrogram'; path: string; streamIndex?: number },
+    signal?: AbortSignal): Promise<T> {
     if (this.closed) return Promise.reject(new Error('分析窗口已关闭。'));
+    if (signal?.aborted) return Promise.reject(new Error('文件解析已取消。'));
     return new Promise((resolveResult, reject) => {
       const worker = new Worker(new URL('./worker.js', import.meta.url), {
         workerData: { ...request, options: this.options },
       });
       let settled = false;
+      let cancelled = false;
+      const abort = (): void => {
+        cancelled = true;
+        worker.postMessage('close');
+      };
       const finish = (result: T | undefined, error?: Error): void => {
         if (settled) return;
         settled = true;
@@ -228,18 +248,25 @@ export class WorkerAnalyzer {
           void worker.terminate();
           return;
         }
+        if (cancelled) return;
         if (message.result) finish(message.result);
         else finish(undefined, new Error(message.error || '分析线程返回了无效结果。'));
       });
-      worker.once('error', error => finish(undefined, error instanceof Error ? error : new Error(String(error))));
+      worker.once('error', error => {
+        if (!cancelled) finish(undefined, error instanceof Error ? error : new Error(String(error)));
+      });
       const exited = new Promise<void>(resolveExit => {
         worker.once('exit', code => {
           this.workers.delete(worker);
-          finish(undefined, new Error(`分析线程意外退出（${code}），请重试。`));
+          signal?.removeEventListener('abort', abort);
+          finish(undefined, new Error(cancelled ? '文件解析已取消。' : `分析线程意外退出（${code}），请重试。`));
           resolveExit();
         });
       });
       this.workers.set(worker, { exited, cancel: () => finish(undefined, new Error('分析窗口已关闭。')) });
+      // A cancelled request settles only after the worker has reaped its tools.
+      signal?.addEventListener('abort', abort, { once: true });
+      if (signal?.aborted) abort();
     });
   }
 

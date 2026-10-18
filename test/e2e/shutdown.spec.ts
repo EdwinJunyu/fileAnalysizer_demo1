@@ -63,6 +63,57 @@ test.afterEach(async () => {
   }
 });
 
+test('移除正在解析的文件会回收工具并立即处理排队文件', async () => {
+  const page = await application!.firstWindow();
+  const nextFile = join(directory, 'next.txt');
+  await writeFile(nextFile, 'next local file');
+  await application!.evaluate(({ dialog }, file) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+  }, nextFile);
+  await page.getByRole('button', { name: '添加文件', exact: true }).click();
+  await expect(page.locator('#list-summary')).toHaveText('2 个文件 · 0 个已处理');
+  await expect(page.locator('.file-state[data-state="waiting"]')).toHaveCount(1);
+
+  await page.getByRole('button', { name: '从列表移除 pending.wav', exact: true }).click();
+  // The normal tool timeout is 15 seconds. Both conditions must hold well before it.
+  await Promise.all([
+    expect.poll(() => running(toolPID!), { timeout: 4000 }).toBe(false),
+    expect(page.locator('#list-summary')).toHaveText('1 个文件 · 1 个已处理', { timeout: 4000 }),
+  ]);
+  await expect(page.getByRole('button', { name: 'next.txt 解析完成', exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /pending\.wav/ })).toHaveCount(0);
+  await expect(page.locator('#detail-content .badge')).toHaveText('解析完成');
+});
+
+test('清空活动解析后可立即重新导入，旧任务和排队结果不复活', async () => {
+  const page = await application!.firstWindow();
+  const discardedFile = join(directory, 'discarded.txt');
+  await writeFile(discardedFile, 'file removed while waiting');
+  await application!.evaluate(({ dialog }, file) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+  }, discardedFile);
+  await page.getByRole('button', { name: '添加文件', exact: true }).click();
+  await expect(page.locator('#list-summary')).toHaveText('2 个文件 · 0 个已处理');
+
+  await page.getByRole('button', { name: '清空列表', exact: true }).click();
+  await Promise.all([
+    expect.poll(() => running(toolPID!), { timeout: 4000 }).toBe(false),
+    expect(page.locator('#file-count')).toHaveText('0', { timeout: 4000 }),
+  ]);
+
+  const freshFile = join(directory, 'fresh.txt');
+  await writeFile(freshFile, 'fresh local file');
+  await application!.evaluate(({ dialog }, file) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
+  }, freshFile);
+  await page.getByRole('button', { name: '添加文件', exact: true }).click();
+  await expect(page.locator('#list-summary')).toHaveText('1 个文件 · 1 个已处理', { timeout: 4000 });
+  await expect(page.getByRole('button', { name: 'fresh.txt 解析完成', exact: true })).toBeVisible();
+  await expect(page.locator('#file-list .file-row')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: /pending\.wav|discarded\.txt/ })).toHaveCount(0);
+  expect(running(toolPID!)).toBe(false);
+});
+
 test('关闭窗口会停止正在运行的解析工具', async () => {
   const page = await application!.firstWindow();
   const closed = page.waitForEvent('close');

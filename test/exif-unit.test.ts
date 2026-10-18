@@ -44,6 +44,48 @@ test('Photoshop display centimetres do not change pixels/inch storage', () => {
   assert.equal(get(result, 'image.dpiX').value, 300);
 });
 
+test('TIFF standard fields do not borrow values from later pages or thumbnails', () => {
+  const tags = {
+    'IFD0:ImageWidth': 80, 'IFD0:ImageHeight': 60,
+    'IFD0:XResolution': 72, 'IFD0:YResolution': 72, 'IFD0:ResolutionUnit': 2,
+    'IFD1:XResolution': 150, 'IFD1:YResolution': 150, 'IFD1:ResolutionUnit': 2,
+    'IFD2:XResolution': 300, 'IFD2:YResolution': 300, 'IFD2:ResolutionUnit': 2,
+    'IFD2:BitsPerSample': '16 16 16 16', 'IFD2:ExtraSamples': 2,
+    'IFD2:PhotometricInterpretation': 2, 'IFD2:Orientation': 6,
+    'IFD2:ImageDescription': 'A different page',
+    'IFD12:XResolution': 600, 'IFD12:ResolutionUnit': 2,
+    'Thumbnail:BitsPerSample': 16, 'PreviewImage:ImageWidth': 1024,
+  };
+  const result = normalizeExifMetadata(tags, 'image');
+  assert.equal(get(result, 'image.dpiX').value, 72);
+  assert.equal(get(result, 'image.dpiY').value, 72);
+  assert.equal(get(result, 'image.width').value, 80);
+  assert.equal(get(result, 'image.bitDepth').status, 'missing');
+  assert.equal(get(result, 'image.colorSpace').status, 'missing');
+  assert.equal(get(result, 'image.hasAlpha').status, 'unknown');
+  assert.equal(get(result, 'image.orientation').status, 'missing');
+  assert.equal(get(result, 'document.description').status, 'missing');
+  assert.deepEqual(result.rawMetadata, tags);
+  assert.equal(result.issues?.length, 0);
+
+  const noMainPage = normalizeExifMetadata({ 'IFD2:ImageWidth': 640,
+    'IFD2:XResolution': 300, 'IFD2:ResolutionUnit': 2 }, 'image');
+  assert.equal(get(noMainPage, 'image.width').status, 'missing');
+  assert.equal(get(noMainPage, 'image.dpiX').status, 'missing');
+});
+
+test('other main-image DPI sources still report genuine conflicts', () => {
+  for (const secondary of [
+    { 'Photoshop:XResolution': 300 },
+    { 'PNG-pHYs:PixelsPerUnitX': 11811, 'PNG-pHYs:PixelUnits': 1 },
+  ]) {
+    const result = normalizeExifMetadata({ 'IFD0:XResolution': 72,
+      'IFD0:ResolutionUnit': 2, ...secondary }, 'image');
+    assert.equal(get(result, 'image.dpiX').status, 'unknown');
+    assert.ok(result.issues?.some(issue => issue.code === 'CONFLICTING_RESOLUTION'));
+  }
+});
+
 test('image depth remains per-channel and transparency follows explicit tags', () => {
   const tags = { 'PNG:ImageWidth': 80, 'PNG:ImageHeight': 60, 'PNG:BitDepth': 8,
     'PNG:ColorType': 2, 'PNG:Transparency': '(Binary data 6 bytes)', 'custom:Tag': 'retained' };

@@ -8,6 +8,14 @@ type Tag = { name: string; value: unknown };
 const source = (tag?: Tag): string => tag ? `ExifTool: ${tag.name}` : 'ExifTool';
 const tagName = (name: string): string => name.slice(name.lastIndexOf(':') + 1);
 
+function primaryImageTags(tags: Tags): Tags {
+  // Numbered IFDs after IFD0 describe other pages or thumbnails. Their tags
+  // remain in raw metadata, but must not fill gaps or conflict with the main
+  // image's dimensions, colour, transparency, orientation or print density.
+  return Object.fromEntries(Object.entries(tags).filter(([name]) =>
+    !/^(?:IFD[1-9]\d*|Thumbnail[^:]*|Preview[^:]*):/.test(name)));
+}
+
 function find(tags: Tags, names: string[], groups?: RegExp): Tag | undefined {
   for (const name of names) {
     const match = Object.entries(tags).find(([key]) =>
@@ -51,7 +59,7 @@ function resolutions(tags: Tags, axis: 'X' | 'Y'): Resolution[] {
     const group = name.slice(0, name.lastIndexOf(':'));
     const tag = tagName(name);
     if (tag !== `${axis}Resolution` && tag !== `PixelsPerUnit${axis}`) continue;
-    if (/^(System|File|Composite|IFD1|Thumbnail)/.test(group)) continue;
+    if (/^(System|File|Composite)/.test(group)) continue;
     const amount = positive(value);
     let factor: number | undefined;
     let explanation = '未记录可换算为英寸的物理单位';
@@ -144,12 +152,11 @@ function imageFields(tags: Tags): MetadataField[] {
   const fields: MetadataField[] = [];
   for (const [axis, label] of [['Width', '像素宽度'], ['Height', '像素高度']] as const) {
     const tag = find(tags, [`File:Image${axis}`, `PNG:Image${axis}`, `GIF:Image${axis}`,
-      `IFD0:Image${axis}`, `RIFF:Image${axis}`, `Image${axis}`, `ExifImage${axis}`],
-      /^(?!IFD1:|Thumbnail|Preview)/);
+      `IFD0:Image${axis}`, `RIFF:Image${axis}`, `Image${axis}`, `ExifImage${axis}`]);
     fields.push(field(`image.${axis.toLowerCase()}`, label, positive(tag?.value), source(tag), 'px'));
   }
   fields.push(dpiField(tags, 'X'), dpiField(tags, 'Y'));
-  const depth = find(tags, ['PNG:BitDepth', 'BitsPerSample', 'BitDepth', 'BitsPerPixel'], /^(?!IFD1:|Thumbnail)/);
+  const depth = find(tags, ['PNG:BitDepth', 'BitsPerSample', 'BitDepth', 'BitsPerPixel']);
   const parts = (Array.isArray(depth?.value) ? depth.value : String(depth?.value ?? '').split(/\s+/))
     .map(positive).filter((value): value is number => value !== undefined);
   const uniqueDepths = [...new Set(parts)];
@@ -158,7 +165,7 @@ function imageFields(tags: Tags): MetadataField[] {
   fields.push(field('image.bitDepth', '位深', uniqueDepths.length === 1 ? uniqueDepths[0]
     : uniqueDepths.length ? uniqueDepths.join('/') : undefined, source(depth), palette ? 'bit/pixel' : 'bit/channel',
     palette ? '调色板索引位数' : '每通道位数；多个不同值按原始通道列出'));
-  const color = find(tags, ['ColorSpace', 'PNG:ColorType', 'PhotometricInterpretation', 'ColorMode'], /^(?!IFD1:|Thumbnail)/);
+  const color = find(tags, ['ColorSpace', 'PNG:ColorType', 'PhotometricInterpretation', 'ColorMode']);
   let colorValue = text(color?.value);
   if (color && tagName(color.name) === 'ColorSpace') {
     colorValue = ({ 1: 'sRGB', 2: 'Adobe RGB', 65535: 'Uncalibrated' } as Record<string, string>)[String(color.value)] ?? colorValue;
@@ -222,13 +229,14 @@ function officeFields(tags: Tags): MetadataField[] {
 
 /** Normalize one ExifTool JSON record, retaining every original tag for details. */
 export function normalizeExifMetadata(tags: Tags, category: 'image' | 'office'): ExtractedMetadata {
-  const fields = category === 'image' ? imageFields(tags) : officeFields(tags);
+  const fieldTags = category === 'image' ? primaryImageTags(tags) : tags;
+  const fields = category === 'image' ? imageFields(fieldTags) : officeFields(fieldTags);
   for (const [key, label, names] of [
     ['title', '标题', ['XML:Title', 'XMP-dc:Title', 'Title']],
     ['subject', '主题', ['XML:Subject', 'XMP-dc:Subject', 'Subject']],
     ['description', '描述', ['XML:Description', 'XMP-dc:Description', 'ImageDescription', 'Description']],
     ['keywords', '关键词', ['XML:Keywords', 'XMP-pdf:Keywords', 'Keywords']],
-  ] as const) addText(fields, tags, `document.${key}`, label, [...names]);
+  ] as const) addText(fields, fieldTags, `document.${key}`, label, [...names]);
   const issues = [];
   for (const [name, value] of Object.entries(tags)) {
     if (/^(Warning|Error)$/.test(tagName(name))) {
