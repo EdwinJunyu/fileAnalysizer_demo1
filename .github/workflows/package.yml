@@ -1,0 +1,120 @@
+name: Build complete desktop packages
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: ${{ matrix.platform }}-${{ matrix.arch }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            platform: win32
+            arch: x64
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+          - runner: macos-15
+            platform: darwin
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+      PACKAGING_JOBS: '3'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          architecture: ${{ matrix.arch }}
+          cache: npm
+      - name: Verify native build architecture
+        run: node -e "const os=require('node:os');if(process.platform!=='${{ matrix.platform }}'||process.arch!=='${{ matrix.arch }}')throw new Error('Wrong native runner');console.log(process.platform,process.arch,os.machine())"
+      - name: Verify macOS host architecture
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          TASK_EXPECTED_ARCH='${{ matrix.arch }}'
+          if [ "$TASK_EXPECTED_ARCH" = x64 ]; then TASK_EXPECTED_ARCH=x86_64; fi
+          test "$(uname -m)" = "$TASK_EXPECTED_ARCH"
+      - run: npm ci
+      - run: npm run test:packaging
+      - name: Install native Windows compiler
+        if: matrix.platform == 'win32'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          path-type: inherit
+          install: >-
+            mingw-w64-ucrt-x86_64-gcc
+            make
+            diffutils
+            tar
+            perl
+      - name: Prepare complete Windows tools
+        if: matrix.platform == 'win32'
+        shell: msys2 {0}
+        run: npm run prepare:tools
+      - name: Prepare complete macOS tools
+        if: matrix.platform == 'darwin'
+        run: npm run prepare:tools
+      - run: npm run build
+      - name: Build unpacked application
+        run: node scripts/package-app.mjs --dir
+      - name: Smoke-test packaged application and bundled tools
+        run: npm run smoke:package
+      - name: Create installer
+        run: node scripts/package-app.mjs
+      - name: Install Windows package and smoke-test the installed application
+        if: matrix.platform == 'win32'
+        shell: pwsh
+        run: |
+          $TaskInstaller = Get-ChildItem release -Filter 'File-Analyzer-*-win-x64.exe' | Select-Object -First 1
+          if (-not $TaskInstaller) { throw 'Windows installer was not created.' }
+          $TaskInstallDirectory = Join-Path $env:RUNNER_TEMP 'FileAnalyzerInstalled'
+          $TaskInstall = Start-Process -FilePath $TaskInstaller.FullName -ArgumentList @('/S', "/D=$TaskInstallDirectory") -Wait -PassThru
+          if ($TaskInstall.ExitCode -ne 0) { throw "Installer exited with $($TaskInstall.ExitCode)." }
+          try {
+            $TaskExecutable = Join-Path $TaskInstallDirectory 'File Analyzer.exe'
+            if (-not (Test-Path $TaskExecutable)) { throw 'Installed application is missing.' }
+            node scripts/smoke-package.mjs "--app=$TaskExecutable"
+            if ($LASTEXITCODE -ne 0) { throw 'Installed application smoke test failed.' }
+          } finally {
+            $TaskUninstaller = Join-Path $TaskInstallDirectory 'Uninstall File Analyzer.exe'
+            if (Test-Path $TaskUninstaller) {
+              Start-Process -FilePath $TaskUninstaller -ArgumentList '/S' -Wait
+            }
+          }
+      - name: Mount macOS image, copy and smoke-test the installed application
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          TASK_IMAGE=$(find release -maxdepth 1 -name 'File-Analyzer-*.dmg' -print -quit)
+          test -n "$TASK_IMAGE"
+          TASK_MOUNT="$RUNNER_TEMP/file-analyzer-dmg"
+          TASK_INSTALL="$RUNNER_TEMP/Installed Apps"
+          mkdir -p "$TASK_MOUNT" "$TASK_INSTALL"
+          hdiutil attach -readonly -nobrowse -mountpoint "$TASK_MOUNT" "$TASK_IMAGE"
+          trap 'hdiutil detach "$TASK_MOUNT"' EXIT
+          ditto "$TASK_MOUNT/File Analyzer.app" "$TASK_INSTALL/File Analyzer.app"
+          node scripts/smoke-package.mjs "--app=$TASK_INSTALL/File Analyzer.app/Contents/MacOS/File Analyzer"
+      - name: Upload review artifacts (no publishing)
+        uses: actions/upload-artifact@v4
+        with:
+          name: File-Analyzer-${{ matrix.platform }}-${{ matrix.arch }}
+          path: |
+            release/*.exe
+            release/*.dmg
+          if-no-files-found: error
+          retention-days: 14

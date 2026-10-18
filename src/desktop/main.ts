@@ -16,8 +16,7 @@ let quitting = false;
 let cleanupComplete = false;
 
 function closeAnalysis(currentJobs: DesktopJobs, currentAnalyzer: WorkerAnalyzer): void {
-  currentJobs.close();
-  const cleanup = currentAnalyzer.close();
+  const cleanup = Promise.all([currentJobs.close(), currentAnalyzer.close()]).then(() => {});
   pendingCleanup.add(cleanup);
   void cleanup.then(() => pendingCleanup.delete(cleanup));
 }
@@ -64,17 +63,35 @@ function configureIPC(): void {
   ipcMain.handle('files:retry', (event, id: unknown) => {
     requireWindow(event);
     const [fileID] = stringList([id]);
-    jobs!.retryFile(fileID!);
+    return jobs!.retryFile(fileID!);
   });
   ipcMain.handle('files:remove', (event, ids: unknown) => {
     requireWindow(event);
-    jobs!.removeFiles(stringList(ids));
+    return jobs!.removeFiles(stringList(ids));
+  });
+  ipcMain.handle('spectrum:generate', async (event, id: unknown, streamIndex: unknown) => {
+    requireWindow(event);
+    const [fileID] = stringList([id]);
+    if (typeof streamIndex !== 'number' || !Number.isSafeInteger(streamIndex) || streamIndex < 0) {
+      throw new Error('音轨参数无效。');
+    }
+    try {
+      return { result: await jobs!.generateSpectrogram(fileID!, streamIndex) };
+    } catch (error) {
+      return { error: error instanceof Error ? error.message : '频谱生成失败，请重试。' };
+    }
+  });
+  ipcMain.handle('spectrum:cancel', (event, id: unknown) => {
+    requireWindow(event);
+    const [fileID] = stringList([id]);
+    return jobs!.cancelSpectrogram(fileID!);
   });
 }
 
 function createWindow(): void {
   const toolsDirectory = join(process.resourcesPath, 'tools');
-  analyzer = new WorkerAnalyzer(existsSync(toolsDirectory) ? { bundledToolsDir: toolsDirectory } : {});
+  const toolOptions = existsSync(toolsDirectory) ? { bundledToolsDir: toolsDirectory } : {};
+  analyzer = new WorkerAnalyzer(toolOptions);
   const backgroundColor = readFileSync(new URL('tokens.css', uiURL), 'utf8')
     .match(/--color-background:\s*([^;]+);/)?.[1]?.trim();
   if (!backgroundColor) throw new Error('界面颜色配置缺失，请先运行 npm run build。');
@@ -90,7 +107,7 @@ function createWindow(): void {
   window = activeWindow;
   jobs = new DesktopJobs(analyzer.analyze, event => {
     if (!activeWindow.isDestroyed()) activeWindow.webContents.send('files:event', event);
-  });
+  }, () => new WorkerAnalyzer(toolOptions));
   const currentJobs = jobs;
   const currentAnalyzer = analyzer;
   activeWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));

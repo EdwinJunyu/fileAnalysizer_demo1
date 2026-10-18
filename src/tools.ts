@@ -5,7 +5,7 @@ import { join, resolve, isAbsolute, sep } from 'node:path';
 import type { AnalysisOptions } from './types.js';
 import { validateTimeout } from './options.js';
 
-export type ToolName = 'ffprobe' | 'exiftool';
+export type ToolName = 'ffprobe' | 'ffmpeg' | 'exiftool';
 
 export interface ToolOutput {
   stdout: string;
@@ -48,7 +48,9 @@ export async function toolPath(tool: ToolName, options: AnalysisOptions = {}): P
   }
   const configured = tool === 'ffprobe'
     ? options.ffprobePath ?? process.env.FILE_ANALYZER_FFPROBE
-    : options.exiftoolPath ?? process.env.FILE_ANALYZER_EXIFTOOL;
+    : tool === 'ffmpeg'
+      ? options.ffmpegPath ?? process.env.FILE_ANALYZER_FFMPEG ?? process.env.FFMPEG_PATH
+      : options.exiftoolPath ?? process.env.FILE_ANALYZER_EXIFTOOL;
   if (!configured) return tool;
   return isAbsolute(configured) || configured.includes(sep) || configured.includes('/')
     ? resolve(configured) : configured;

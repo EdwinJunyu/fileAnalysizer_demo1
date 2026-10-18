@@ -45,8 +45,20 @@ export interface AnalysisResult {
 export interface AnalysisOptions {
   bundledToolsDir?: string;
   ffprobePath?: string;
+  ffmpegPath?: string;
   exiftoolPath?: string;
   timeoutMs?: number;
+}
+
+/** A single audio stream's full-duration, linear-frequency spectrogram. */
+export interface SpectrogramResult {
+  streamIndex: number;
+  imageDataUrl: string;
+  width: number;
+  height: number;
+  sampleRateHz: number;
+  durationSeconds: number;
+  channels: number;
 }
 
 export interface ExtractedMetadata {

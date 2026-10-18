@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { basename, isAbsolute, resolve } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import type { AnalysisOptions, AnalysisResult } from '../types.js';
+import type { AnalysisOptions, AnalysisResult, SpectrogramResult } from '../types.js';
 import type { DesktopEvent, DesktopFile } from './contracts.js';
 
 type Analyze = (path: string) => Promise<AnalysisResult>;
@@ -12,6 +12,19 @@ type Entry = DesktopFile & {
 };
 type Job = { id: string; attempt: number };
 
+export interface SpectrumWorker {
+  generateSpectrogram(path: string, streamIndex: number): Promise<SpectrogramResult>;
+  close(): Promise<void>;
+}
+type SpectrumJob = {
+  id: string;
+  attempt: number;
+  streamIndex: number;
+  worker: SpectrumWorker;
+  cancelled: boolean;
+  pending: Promise<SpectrogramResult>;
+};
+
 /** Small in-memory serial queue. Removed or superseded attempts never publish results. */
 export class DesktopJobs {
   private readonly entries = new Map<string, Entry>();
@@ -19,8 +32,10 @@ export class DesktopJobs {
   private readonly queue: Job[] = [];
   private running = false;
   private closed = false;
+  private spectrum: SpectrumJob | undefined;
 
-  constructor(private readonly analyze: Analyze, private readonly emit: (event: DesktopEvent) => void) {}
+  constructor(private readonly analyze: Analyze, private readonly emit: (event: DesktopEvent) => void,
+    private readonly createSpectrumWorker?: () => SpectrumWorker) {}
 
   register(paths: string[]): DesktopFile[] {
     if (this.closed) return [];
@@ -54,28 +69,79 @@ export class DesktopJobs {
     this.pump();
   }
 
-  retryFile(id: string): void {
+  retryFile(id: string): Promise<void> {
     const entry = this.entries.get(id);
     if (entry && (entry.state === 'failed' || entry.state === 'done' && entry.result?.status !== 'ok')) {
       this.enqueue(entry);
       this.pump();
+      return this.cancelSpectrogram(id);
     }
+    return Promise.resolve();
   }
 
-  removeFiles(ids: string[]): void {
+  removeFiles(ids: string[]): Promise<void> {
+    const cancelled: Promise<void>[] = [];
     for (const id of ids) {
       const entry = this.entries.get(id);
       if (!entry) continue;
+      cancelled.push(this.cancelSpectrogram(id));
       this.paths.delete(this.pathKey(entry.path));
       this.entries.delete(id);
     }
+    return Promise.all(cancelled).then(() => {});
   }
 
-  close(): void {
+  close(): Promise<void> {
     this.closed = true;
     this.entries.clear();
     this.paths.clear();
     this.queue.length = 0;
+    return this.spectrum ? this.cancelSpectrogram(this.spectrum.id) : Promise.resolve();
+  }
+
+  generateSpectrogram(id: string, streamIndex: number): Promise<SpectrogramResult> {
+    const entry = this.entries.get(id);
+    if (this.closed || !entry) return Promise.reject(new Error('文件已移除，请重新添加。'));
+    if (entry.state !== 'done') return Promise.reject(new Error('请先完成文件参数分析。'));
+    if (!Number.isInteger(streamIndex) || streamIndex < 0 ||
+      !entry.result?.streams.some(stream => stream.type === 'audio' && stream.index === streamIndex)) {
+      return Promise.reject(new Error('请选择文件中有效的音轨。'));
+    }
+    if (!this.createSpectrumWorker) return Promise.reject(new Error('频谱生成不可用。'));
+    if (this.spectrum) {
+      const current = this.spectrum;
+      if (!current.cancelled && current.id === id && current.attempt === entry.attempt && current.streamIndex === streamIndex) {
+        return current.pending;
+      }
+      return Promise.reject(new Error('另一个频谱正在生成，请稍后重试或取消。'));
+    }
+    const job: SpectrumJob = {
+      id, attempt: entry.attempt, streamIndex, worker: this.createSpectrumWorker(), cancelled: false,
+      pending: undefined!,
+    };
+    this.spectrum = job;
+    job.pending = Promise.resolve().then(() => {
+      if (job.cancelled) throw new Error('频谱生成已取消。');
+      return job.worker.generateSpectrogram(entry.path, streamIndex);
+    }).finally(() => job.worker.close()).then(result => {
+      // Cleanup is part of the job: cancellation/removal/retry may arrive while it is pending.
+      if (this.spectrum === job) this.spectrum = undefined;
+      if (job.cancelled || !this.isCurrent(job) || entry.state !== 'done') throw new Error('频谱生成已取消。');
+      return result;
+    }, (error: unknown) => {
+      if (this.spectrum === job) this.spectrum = undefined;
+      if (job.cancelled) throw new Error('频谱生成已取消。');
+      throw error;
+    });
+    return job.pending;
+  }
+
+  cancelSpectrogram(id: string): Promise<void> {
+    const job = this.spectrum;
+    if (!job || job.id !== id) return Promise.resolve();
+    job.cancelled = true;
+    // Keep the global slot occupied until both the external process and worker are reaped.
+    return job.worker.close().then(() => job.pending.then(() => {}, () => {}));
   }
 
   private pathKey(path: string): string {
@@ -136,19 +202,27 @@ export class WorkerAnalyzer {
   constructor(private readonly options: AnalysisOptions = {}) {}
 
   analyze = (path: string): Promise<AnalysisResult> => {
+    return this.run<AnalysisResult>({ operation: 'analyze', path });
+  };
+
+  generateSpectrogram = (path: string, streamIndex: number): Promise<SpectrogramResult> => {
+    return this.run<SpectrogramResult>({ operation: 'spectrogram', path, streamIndex });
+  };
+
+  private run<T>(request: { operation: 'analyze' | 'spectrogram'; path: string; streamIndex?: number }): Promise<T> {
     if (this.closed) return Promise.reject(new Error('分析窗口已关闭。'));
     return new Promise((resolveResult, reject) => {
       const worker = new Worker(new URL('./worker.js', import.meta.url), {
-        workerData: { path, options: this.options },
+        workerData: { ...request, options: this.options },
       });
       let settled = false;
-      const finish = (result: AnalysisResult | undefined, error?: Error): void => {
+      const finish = (result: T | undefined, error?: Error): void => {
         if (settled) return;
         settled = true;
         if (error) reject(error);
         else resolveResult(result!);
       };
-      worker.on('message', (message: { result?: AnalysisResult; error?: string; closed?: boolean }) => {
+      worker.on('message', (message: { result?: T; error?: string; closed?: boolean }) => {
         if (message.closed) {
           // The worker has sealed its tool runner and reaped every child before this acknowledgement.
           void worker.terminate();
@@ -167,7 +241,7 @@ export class WorkerAnalyzer {
       });
       this.workers.set(worker, { exited, cancel: () => finish(undefined, new Error('分析窗口已关闭。')) });
     });
-  };
+  }
 
   close(): Promise<void> {
     if (this.shutdown) return this.shutdown;

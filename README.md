@@ -1,14 +1,14 @@
 # Overview
 
-File Analyzer is an offline file analysis project for **Windows and macOS**. It provides a desktop interface with local file import, detailed metadata tables, and basic file comparisons, alongside a TypeScript API and command-line interface. Static audio spectrograms are planned. All file processing stays on your computer.
+File Analyzer is an offline file analysis project for **Windows and macOS**. It provides local file import, detailed metadata tables, basic file comparisons, and on-demand static spectrograms for a selected audio track. A TypeScript API and metadata command-line interface are also available. All file processing stays on your computer.
 
-The parsing core and Electron desktop workflow are implemented and tested on Linux. Windows/macOS release packages are not available yet; source code is hosted on GitHub.
+The application is developed and tested on Linux. Native Windows/macOS packaging and validation are configured separately; see [packaging instructions](docs/PACKAGING.md) for build prerequisites and release checks. No release has been published yet.
 
 # File Analyzer
 
 一个面向 **Windows 和 macOS** 的离线桌面小工具：**拖入文件 → 查看参数 → 按需查看频谱**。
 
-当前已实现**阶段一：解析基础**和**阶段二：桌面交互**，提供 Electron 窗口、文件拖放/选择、详情与基础对比，以及 TypeScript 接口、命令行和自动化测试。频谱和发布安装包尚未实现；当前运行验证环境为 Linux，Windows/macOS 实测将在打包阶段完成。
+当前提供 Electron 窗口、文件拖放/选择、详情与基础对比、按音轨生成静态频谱，以及 TypeScript 接口、元数据命令行和自动化测试。第三阶段同时补充完整包构建和原生平台 CI；当前云环境为 Linux，Windows/macOS 的实际构建与安装验收结果须以原生平台运行记录为准，尚未发布 Releases 应用包。
 
 ## 项目目标
 
@@ -25,7 +25,7 @@ The parsing core and Electron desktop workflow are implemented and tested on Lin
 
 ## 运行桌面应用
 
-准备下文的 Node.js、FFprobe 和 ExifTool 后，在仓库根目录运行：
+源码运行需准备下文的 Node.js、FFprobe 和 ExifTool；生成频谱还需要 FFmpeg。在仓库根目录运行：
 
 ```sh
 npm ci
@@ -38,9 +38,10 @@ npm start
 - 左侧选择文件，右侧查看基础信息、专属参数和各媒体轨道。
 - 列表包含至少两个文件时，可切换“参数对比”，比较当前列表中的常用参数。混合类型使用“不适用”，缺失属性显示“未记录”。
 - 每个文件分别显示等待、解析中、完成、部分解析或失败。部分解析及失败可点击“重新解析”。
+- 音视频详情中选择音轨，点击“生成频谱”。生成时可取消，也可继续导入或检查其他文件；一次生成一张图，失败可重试。
 - “移除”和“清空列表”只移除本次会话中的条目，不删除或修改原文件。关闭窗口后不保存导入路径和结果。
 
-解析在后台 Worker 中串行执行，单个文件失败不影响其他文件。工具默认通过系统 `PATH` 查找，也可在启动前设置 `FILE_ANALYZER_FFPROBE`、`FILE_ANALYZER_EXIFTOOL`；修改环境配置后重新启动应用。此阶段没有单独的工具设置页面，也没有附带工具的完整发布包。
+元数据在后台 Worker 中串行解析，频谱使用独立后台任务，单个文件失败不影响其他文件。工具优先使用应用随包资源，其次使用启动前配置的 `FILE_ANALYZER_FFPROBE`、`FILE_ANALYZER_EXIFTOOL`、`FILE_ANALYZER_FFMPEG`，最后查找系统 `PATH`。修改环境配置后重新启动应用；缺少 FFmpeg 只影响频谱。取消生成、移除对应文件或退出应用时会回收正在运行的工具。没有单独的工具设置页面，也不在应用运行时联网下载工具。
 
 ## 运行解析核心
 
@@ -76,6 +77,20 @@ const result = await analyzeFile('/path/to/file.mp4');
 const results = await analyzeFiles(['/path/to/photo.png', '/path/to/book.xlsx']);
 ```
 
+生成单个音频轨道的频谱（`streamIndex` 是 `result.streams` 中实际的音频轨道 `index`，并非“第几个音轨”）：
+
+```js
+import { generateSpectrogram } from './dist/src/index.js';
+
+const stream = result.streams.find(stream => stream.type === 'audio');
+if (stream) {
+  const spectrum = await generateSpectrogram(result.path, stream.index, {
+    ffmpegPath: '/path/to/ffmpeg', // 也可省略并使用环境变量或 PATH
+  });
+  // spectrum.imageDataUrl 是 PNG；同时返回采样率、时长、尺寸和声道数。
+}
+```
+
 接口返回文件类别、识别方式、整体状态、`fields`、分轨道的 `streams`、`issues` 和解析工具的 `rawMetadata`。每个字段包含稳定的 `key`、中文名称、值、状态、来源和可选单位/说明；缺失值使用 `null`。字段状态为 `present`、`missing`、`not_applicable`、`unknown` 或 `error`；整体状态为 `ok`、`partial` 或 `error`。
 
 可选的第二个参数使用 `timeoutMs` 配置超时，与 CLI 共用整数和范围校验。无效配置会在分析文件之前抛出 `InvalidOptionsError`（`code: 'INVALID_OPTIONS'`），不会误报为文件损坏或识别失败。
@@ -95,7 +110,7 @@ npm run check:design
 
 集成测试要求 FFprobe、FFmpeg 和 ExifTool 可用，不会静默跳过缺失工具。FFmpeg 用于生成短小的音视频、图片样本；Office 样本由代码生成，测试结束后清理，不提交二进制文件或私人素材。若 FFmpeg 不在 `PATH`，测试可设置 `FFMPEG_PATH`。本机曾验证的工具为 Node.js 24、FFmpeg/FFprobe 7.1.5、ExifTool 13.59；未打包这些工具到仓库。
 
-`test:e2e` 用 Playwright 启动真实 Electron，测试文件选择、原生拖放、后台解析、对比、失败恢复、键盘及可访问性。Linux 无桌面会话时需要 Xvfb；测试启动器仅在 Linux 自动附加容器所需的 `--no-sandbox`，正常 `npm start` 不附加该参数。UI 测试和截图输出到忽略的 `test-results/`。
+`test:e2e` 用 Playwright 启动真实 Electron，测试文件选择、原生拖放、后台解析、对比、频谱音轨选择与取消、缺少工具后的恢复、退出清理、键盘及可访问性。Linux 无桌面会话时需要 Xvfb；测试启动器仅在 Linux 自动附加容器所需的 `--no-sandbox`，正常 `npm start` 不附加该参数。UI 测试和截图输出到忽略的 `test-results/`。
 
 `DESIGN.md` 记录单窗口界面规范，构建时生成运行时 CSS token；`check:design` 检查生成值与规范是否一致。UI 使用本地系统字体，没有在线字体或远程资源。
 
@@ -103,7 +118,7 @@ npm run check:design
 
 下表格式已完成阶段一解析验证。实际字段取决于文件内容、编码方式和解析工具；并非每个文件都包含全部信息。
 
-| 类别 | 首批格式 | 计划提取的主要参数 |
+| 类别 | 首批格式 | 可提取的主要参数 |
 | --- | --- | --- |
 | 音频 | MP3、FLAC、WAV、AAC、M4A、OGG | 编码格式、时长、码率、采样率、声道数与布局、位深、编码是否无损，以及可用标签 |
 | 视频 | MP4、MKV、MOV、WebM | 容器格式、视频编码、像素尺寸、帧率、时长、码率，以及各音轨、字幕轨的可用参数 |
@@ -159,7 +174,7 @@ Office 仅提取现成的文档属性和结构信息，不启动办公软件进�
 
 频谱用于辅助观察音频的频率分布、压缩痕迹，以及疑似从有损音源转为无损编码的情况。视频文件的频谱针对其中的音轨生成。
 
-按需生成一张静态的时频图：横轴为时间、纵轴为频率，颜色表示信号强度，注明单位和所选音轨。初版不提供交互式缩放或时间片段选择。
+按需生成一张 1200 × 512 的静态时频图：横轴为完整音轨的相对时间（秒），纵轴为线性频率（Hz，从 0 到原采样率的一半），颜色按 −120～0 dBFS 的对数幅度范围显示。多声道合并展示，图和说明均对应当前选择的实际音轨。初版不提供交互式缩放、导出或时间片段选择。
 
 ### 分析边界
 
@@ -172,10 +187,13 @@ Office 仅提取现成的文档属性和结构信息，不启动办公软件进�
 - 通过后台调用解析工具保持界面响应，频谱按需生成并显示处理状态。
 - 不在界面进程中加载全部解码音频；长文件允许耗时较久，失败时明确说明原因。
 - 高频分析保留足够的采样率，避免降采样破坏观察依据。
+- FFmpeg 的 `showspectrumpic` 会缓存浮点音频；存在音轨时长时，生成前按 `采样率 × 声道数 × 时长 × 4` 检查。解码链另有实际样本数硬限制，超过 256 MiB 时明确拒绝并建议先截取较短片段，不自动降采样或仅截取开头冒充全长。此限制针对音频缓存，并非整个应用的内存上限；44.1 kHz 双声道约可覆盖 12 分钟，高采样率、多声道的可用时长更短。
+- 横轴时长来自实际解码样本数，避免把容器时长或音轨起始偏移当成实际音频时长。无法可靠确定采样率、声道或实际有效样本数时不生成图。频谱工具调用默认最多 120 秒，超时会终止工具，参数结果仍保留。
+- 音轨中途改变采样率、声道布局或采样格式时，会明确提示暂不支持生成完整频谱，不将最后一段冒充整条音轨；文件参数仍可查看。
 
 ## 技术选型
 
-初版采用 Electron + TypeScript，优先降低开发和维护难度。应用代码主要使用 TypeScript；具体版本和依赖将在开发阶段确定。
+初版采用 Electron + TypeScript，优先降低开发和维护难度。应用代码主要使用 TypeScript；具体版本以 `package.json` 和锁文件为准。
 
 | 组件 | 建议方案 | 职责 |
 | --- | --- | --- |
@@ -218,7 +236,7 @@ Office 仅提取现成的文档属性和结构信息，不启动办公软件进�
 - 完整版在没有预装解析工具的目标电脑上验证，确保运行依赖齐全。
 - 发布时记录附带工具的版本并遵守对应的再分发许可；项目自身的开源许可证待确定。
 
-目前尚未提供 Releases 应用包；本节描述计划交付方式。
+构建命令、工具资源布局、固定来源与校验、许可记录和原生平台验收见 [打包说明](docs/PACKAGING.md)。构建阶段可以联网获取固定依赖，安装后的分析流程离线运行。尚未发布 Releases 应用包。
 
 ## 开发顺序与验收
 
@@ -238,16 +256,17 @@ Office 仅提取现成的文档属性和结构信息，不启动办公软件进�
 
 验收：单文件和批量导入均可完成；一个文件解析失败不阻止其他文件显示结果；混合类型对比不将不适用字段误报为缺失。
 
-### 阶段三：频谱与跨平台打包
+### 阶段三：频谱与跨平台打包（功能与构建流程已实现，原生验收待执行）
 
 - 调用 FFmpeg 为音频和选中的视频音轨生成静态频谱图。
 - 显示处理状态和生成的图片，不实现交互式频谱编辑。
-- 完成 Windows 和 macOS 安装包与验证。
+- 提供 Windows 和 macOS 完整包构建脚本、随包工具准备与原生 CI 验证流程。
+- 在对应系统实际运行构建、安装与离线验收后，才能宣布该平台安装包可交付；Linux 云环境的通过结果不能替代这一步。
 
 验收：使用已知频率的音频核对频谱显示，并检查多音轨选择与长文件的响应情况；断网时核心流程可用；两个系统均能安装、解析文件并生成频谱。
 
 ## 当前开发状态
 
-已实现解析核心、命令行、Electron 单窗口、文件列表、详情/基础对比、后台 Worker 和状态恢复。当前没有频谱生成界面或发布安装包。源码运行需要用户自行准备解析工具；Windows/macOS 的实际兼容性和随包依赖将在后续阶段验证。
+已实现解析核心、元数据命令行、Electron 单窗口、文件列表、详情/基础对比、静态频谱、后台生成/取消和工具进程回收。提供完整包构建与原生 CI 配置；源码运行仍需用户自行准备解析工具。当前没有已发布安装包，Windows/macOS 的构建、安装与离线验收尚需在原生环境执行，详见打包说明。
 
 首版的总体验收标准是：**参数可信、操作简单、离线可用，并在 Windows 和 macOS 上验证通过。** 完成这些目标后先实际使用，再决定是否增加功能。

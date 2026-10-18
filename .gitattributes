@@ -1,0 +1,2 @@
+# Bash must receive LF even when Windows checks out other text files as CRLF.
+*.sh text eol=lf

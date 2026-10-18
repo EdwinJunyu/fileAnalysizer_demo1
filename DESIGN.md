@@ -86,12 +86,18 @@ Canonical UI map and behavior (single-window scope; no separate UX-CONTRACT requ
 | Feedback | Badges and one polite live region | This contract | Waiting / processing / complete / partial / failed | UI E2E |
 | Scrollbar | Global stylesheet | DESIGN.md generated tokens | Shared baseline; table/list geometry only | Browser computed style |
 | Tabs | Detail/comparison tab pair | This contract | Arrow/Home/End; in-memory state only | Keyboard E2E |
+| Select/Listbox | Labelled native audio-track select in `src/ui/app.ts` | README and this contract | OS-owned popup, keyboard and geometry; global stream indices | Spectrogram desktop E2E |
+| Spectrogram | Detail panel + desktop spectrum worker | README, `src/spectrogram.ts` and this contract | On-demand static image for one selected audio stream | Known-frequency integration + desktop E2E |
 
-No form, select/date popup, mutation, file deletion, toast stack, authentication or remote service is introduced. Removing/clearing affects only the in-memory list and needs no confirmation. The native OS picker owns its own locale and geometry.
+The audio-track select deliberately accepts the operating system's popup geometry and standard keyboard behavior. Its label and options are Chinese; technical codec identifiers and units retain their standard names. No form, date popup, mutation, file deletion, toast stack, authentication or remote service is introduced. Removing/clearing affects only the in-memory list and needs no confirmation. The native OS file picker owns its own locale and geometry.
 
 Import is available while parsing. Processing is serial in a background worker; events carry file IDs. Removed files and superseded attempts cannot reappear from stale responses. Retry is available for partial/failed results and never duplicates an active attempt. Selecting another file and switching views preserve completed data. Closing the window clears the session; no file paths are persisted.
 
 Empty state explains drag/drop and offers the same Add files action. Waiting/processing states name the activity without a fake percentage. Missing tools keep base information, with a correction hint and retry. Partial parsing preserves available fields. Generic failures leave other files usable. Comparison distinguishes unavailable, missing and not-applicable values and never aggregates unrelated media tracks.
+
+Audio/video details with an audio stream include one spectrum section before the parameter tables. Track options refer to actual global stream indices, with codec and available language/sample-rate context. Nothing is generated automatically. A Generate action starts one spectrum task for the window, independently of metadata parsing; other files remain inspectable and import stays available. A busy task names its file, never displays a fake percentage, and offers Cancel. Missing FFmpeg, an invalid/unavailable track, a resource limit or a timeout leaves metadata intact and offers retry. Removing, retrying or closing a file cancels its spectrum task and discards stale results.
+
+Keep the spectrum's 1200:512 image footprint in idle, loading, success and failure states. Use the existing surface/border/text tokens and responsive layout; the data image's scientific colormap comes from FFmpeg, not a second UI palette. Time runs left to right in seconds; linear frequency runs from 0 Hz at the bottom to half the source sample rate at the top. Explain the logarithmic color intensity and combined channels beside the chart, with an accessible image description. Changing tracks never presents another track's cached image as the selection's result. The latest per-file image/selection is transient, is preserved when switching detail/comparison, and is cleared on removal/reanalysis. No export/editor, interactive zoom or automatic “true lossless” verdict is introduced.
 
 All controls use native buttons and visible focus. Icons have text labels or localized accessible names. No product-native alert/confirm/prompt calls. A drag interaction always has a picker alternative. Reduced motion disables animation. Focus remains on stable controls during updates and returns to a surviving file/add button after removal. When the native picker closes, focus returns to its opener; if that control has disappeared, use the primary Add files button.
 
@@ -100,4 +106,4 @@ All controls use native buttons and visible focus. Icons have text labels or loc
 - Keep the core interaction to add, inspect and compare.
 - Share field formatting and status labels between views.
 - Render filenames, metadata and diagnostic text as text, never HTML.
-- Keep spectrum and full binary packaging in stage three.
+- Keep spectrum to one static, labelled image; keep packaging and external tool preparation outside the product interaction flow.

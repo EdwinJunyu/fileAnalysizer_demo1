@@ -1,0 +1,44 @@
+{
+  "ffmpeg": {
+    "version": "7.1.5",
+    "url": "https://github.com/FFmpeg/FFmpeg/archive/refs/tags/n7.1.5.tar.gz",
+    "sha256": "e3963a50831c985933e1a625ed566ec4c7adb5c012c34fa9f84438e1d61bdacc",
+    "archive": "ffmpeg-7.1.5.tar.gz",
+    "license": "LGPL-2.1-or-later (this build disables GPL and nonfree code)"
+  },
+  "exiftool": {
+    "version": "13.59",
+    "url": "https://github.com/exiftool/exiftool/archive/refs/tags/13.59.tar.gz",
+    "sha256": "87d3317882fdae9cb4dcfe57a96a378d0132ffc02c731315bf128b19ddcf7aac",
+    "archive": "exiftool-13.59.tar.gz",
+    "license": "Artistic-1.0-Perl OR GPL-1.0-or-later (same terms as Perl)"
+  },
+  "exiftoolWindows": {
+    "version": "13.59.3",
+    "url": "https://registry.npmjs.org/exiftool-vendored.exe/-/exiftool-vendored.exe-13.59.3.tgz",
+    "sha256": "7eaf41b3b02ddb9c7bd32bea2417c783d6364a6725cb57d1a0163617aff4b577",
+    "archive": "exiftool-vendored.exe-13.59.3.tgz",
+    "license": "Mixed: MIT packaging, ExifTool Perl terms, CC0 launcher, Strawberry Perl and bundled library licenses; retain full payload and notices"
+  },
+  "perl": {
+    "version": "5.40.2",
+    "url": "https://www.cpan.org/src/5.0/perl-5.40.2.tar.gz",
+    "sha256": "10d4647cfbb543a7f9ae3e5f6851ec49305232ea7621aed24c7cfbb0bef4b70d",
+    "archive": "perl-5.40.2.tar.gz",
+    "license": "Artistic-1.0-Perl OR GPL-1.0-or-later; core modules retain their individual notices"
+  },
+  "archiveZip": {
+    "version": "1.68",
+    "url": "https://cpan.metacpan.org/authors/id/P/PH/PHRED/Archive-Zip-1.68.tar.gz",
+    "sha256": "984e185d785baf6129c6e75f8eb44411745ac00bf6122fb1c8e822a3861ec650",
+    "archive": "Archive-Zip-1.68.tar.gz",
+    "license": "Artistic-1.0-Perl OR GPL-1.0-or-later (same terms as Perl)"
+  },
+  "zlib": {
+    "version": "1.3.1",
+    "url": "https://github.com/madler/zlib/archive/refs/tags/v1.3.1.tar.gz",
+    "sha256": "17e88863f3600672ab49182f217281b6fc4d3c762bde361935e436a95214d05c",
+    "archive": "zlib-1.3.1.tar.gz",
+    "license": "Zlib"
+  }
+}

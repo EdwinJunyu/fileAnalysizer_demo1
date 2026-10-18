@@ -1,4 +1,4 @@
-import type { AnalysisResult } from '../types.js';
+import type { AnalysisResult, SpectrogramResult } from '../types.js';
 
 export interface DesktopFile {
   id: string;
@@ -18,5 +18,7 @@ export interface DesktopBridge {
   analyzeFiles(ids: string[]): Promise<void>;
   retryFile(id: string): Promise<void>;
   removeFiles(ids: string[]): Promise<void>;
+  generateSpectrogram(id: string, streamIndex: number): Promise<SpectrogramResult>;
+  cancelSpectrogram(id: string): Promise<void>;
   onEvent(listener: (event: DesktopEvent) => void): () => void;
 }

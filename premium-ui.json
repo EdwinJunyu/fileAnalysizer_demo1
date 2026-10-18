@@ -3,7 +3,8 @@
   "sourceRoots": ["src/ui", "src/desktop"],
   "locale": "zh-CN",
   "canonicalMap": "DESIGN.md",
-  "requiredCapabilities": ["Scrollbar"],
+  "requiredCapabilities": ["Scrollbar", "Select/Listbox"],
+  "ownership": { "Select/Listbox": "native" },
   "requiredCommands": ["unit", "e2e", "design"],
   "commands": {
     "unit": "npm test",

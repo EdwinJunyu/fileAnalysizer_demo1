@@ -16,7 +16,12 @@
     "analyze": "node dist/src/cli.js",
     "test": "npm run build && node --test dist/test/*.test.js",
     "test:e2e": "npm run build && playwright test",
-    "check:design": "node scripts/build-ui.mjs --check"
+    "check:design": "node scripts/build-ui.mjs --check",
+    "prepare:tools": "node scripts/prepare-tools.mjs",
+    "package:dir": "npm run build && node scripts/package-app.mjs --dir",
+    "package:release": "npm run build && node scripts/package-app.mjs",
+    "test:packaging": "node --test scripts/packaging/*.test.mjs",
+    "smoke:package": "node scripts/smoke-package.mjs"
   },
   "dependencies": {
     "fast-xml-parser": "5.11.2",
@@ -29,9 +34,11 @@
     "@types/node": "26.6.5",
     "@types/yauzl": "3.4.0",
     "electron": "44.9.0",
+    "electron-builder": "26.15.3",
     "esbuild": "0.28.2",
     "fflate": "0.8.3",
     "typescript": "7.0.2",
     "yaml": "2.9.1"
-  }
+  },
+  "license": "UNLICENSED"
 }

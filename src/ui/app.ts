@@ -1,5 +1,5 @@
 import type { DesktopBridge, DesktopFile, DesktopEvent } from '../desktop/contracts.js';
-import type { AnalysisResult, MetadataField } from '../types.js';
+import type { AnalysisResult, MediaStream, MetadataField, SpectrogramResult } from '../types.js';
 import { buildComparison, categoryLabel, formatField, stateLabel, type FileEntry } from './model.js';
 
 declare global { interface Window { fileAnalyzer?: DesktopBridge } }
@@ -10,7 +10,25 @@ let activeId: string | undefined;
 let view: 'detail' | 'compare' = 'detail';
 let picking = false;
 const removing = new Set<string>();
-let renderedDetail: { id?: string; state?: FileEntry['state']; result?: AnalysisResult; message?: string; picking: boolean } | undefined;
+interface SpectrogramState {
+  streamIndex: number;
+  status: 'idle' | 'loading' | 'ready' | 'error' | 'canceled';
+  result?: SpectrogramResult;
+  message?: string;
+  canceling?: boolean;
+}
+interface SpectrogramJob {
+  id: string;
+  state: SpectrogramState;
+  cancelRequested: boolean;
+}
+const spectrograms = new Map<string, SpectrogramState>();
+let spectrogramJob: SpectrogramJob | undefined;
+let renderedDetail: {
+  id?: string; state?: FileEntry['state']; result?: AnalysisResult; message?: string; picking: boolean;
+  spectrogram?: SpectrogramState; spectrogramBusyId?: string;
+} | undefined;
+const plotNumbers = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
   const element = document.getElementById(id);
   if (!element) throw new Error(`Missing element: ${id}`);
@@ -85,6 +103,7 @@ async function removeFiles(ids: string[]): Promise<void> {
     const removed = new Set(ids);
     const previousIndex = entries.findIndex(entry => entry.id === activeId);
     for (let index = entries.length - 1; index >= 0; index--) if (removed.has(entries[index]!.id)) entries.splice(index, 1);
+    ids.forEach(id => spectrograms.delete(id));
     if (!entries.some(entry => entry.id === activeId)) activeId = entries[Math.max(0, Math.min(previousIndex, entries.length - 1))]?.id;
     if (entries.length < 2) view = 'detail';
     render();
@@ -96,6 +115,7 @@ async function removeFiles(ids: string[]): Promise<void> {
 
 async function retry(entry: FileEntry): Promise<void> {
   if (!bridge || entry.state === 'processing' || entry.state === 'waiting') return;
+  spectrograms.delete(entry.id);
   entry.state = 'waiting';
   entry.result = undefined;
   entry.message = undefined;
@@ -120,6 +140,169 @@ function receive(event: DesktopEvent): void {
 }
 
 function badge(entry: FileEntry): HTMLElement { return node('span', `badge ${entry.state}`, stateLabel(entry.state)); }
+
+function audioStreams(entry: FileEntry): MediaStream[] {
+  if (!entry.result || !['audio', 'video'].includes(entry.result.category)) return [];
+  return entry.result.streams.filter(stream => stream.type === 'audio');
+}
+
+function spectrogramState(entry: FileEntry | undefined): SpectrogramState | undefined {
+  if (!entry) return undefined;
+  const streams = audioStreams(entry);
+  if (!streams.length) return undefined;
+  const current = spectrograms.get(entry.id);
+  if (current && streams.some(stream => stream.index === current.streamIndex)) return current;
+  const initial: SpectrogramState = { streamIndex: streams[0]!.index, status: 'idle' };
+  spectrograms.set(entry.id, initial);
+  return initial;
+}
+
+async function generateSpectrogram(entry: FileEntry): Promise<void> {
+  const state = spectrogramState(entry);
+  if (!bridge || !state || spectrogramJob || removing.has(entry.id)) return;
+  const pending: SpectrogramState = { streamIndex: state.streamIndex, status: 'loading' };
+  const job: SpectrogramJob = { id: entry.id, state: pending, cancelRequested: false };
+  spectrograms.set(entry.id, pending);
+  spectrogramJob = job;
+  render();
+  document.getElementById('spectrogram-cancel')?.focus({ preventScroll: true });
+  announce(`正在生成 ${entry.name} 的音频轨道 #${state.streamIndex} 频谱。`);
+  try {
+    const result = await bridge.generateSpectrogram(entry.id, state.streamIndex);
+    if (!entries.includes(entry) || spectrograms.get(entry.id) !== job.state) return;
+    if (job.cancelRequested) throw new Error('频谱生成已取消。');
+    spectrograms.set(entry.id, { streamIndex: state.streamIndex, status: 'ready', result });
+    announce(`${entry.name} 的频谱已生成。`);
+  } catch (error) {
+    if (!entries.includes(entry) || spectrograms.get(entry.id) !== job.state) return;
+    const message = error instanceof Error ? error.message : String(error);
+    const canceled = job.cancelRequested || message.includes('频谱生成已取消');
+    spectrograms.set(entry.id, { streamIndex: state.streamIndex, status: canceled ? 'canceled' : 'error', message: canceled ? undefined : message });
+    announce(canceled ? `${entry.name} 的频谱生成已取消。` : `${entry.name} 的频谱未能生成，可重试。`);
+  } finally {
+    if (spectrogramJob === job) spectrogramJob = undefined;
+    render();
+  }
+}
+
+async function cancelSpectrogram(entry: FileEntry): Promise<void> {
+  const job = spectrogramJob;
+  if (!bridge || !job || job.id !== entry.id || job.cancelRequested || spectrograms.get(entry.id) !== job.state) return;
+  job.cancelRequested = true;
+  job.state = { ...job.state, canceling: true, message: undefined };
+  spectrograms.set(entry.id, job.state);
+  render();
+  try { await bridge.cancelSpectrogram(entry.id); }
+  catch (error) {
+    if (spectrogramJob !== job || spectrograms.get(entry.id) !== job.state) return;
+    job.cancelRequested = false;
+    job.state = { ...job.state, canceling: false, message: `取消未完成：${error instanceof Error ? error.message : String(error)}。请再次取消。` };
+    spectrograms.set(entry.id, job.state);
+    render();
+    announce('取消频谱生成未完成，请再次尝试。');
+  }
+}
+
+function streamValue(stream: MediaStream | undefined, key: string): MetadataField['value'] | undefined {
+  const field = stream?.fields.find(item => item.key === key);
+  return field?.status === 'present' ? field.value : undefined;
+}
+
+function trackLabel(stream: MediaStream): string {
+  const fields = ['stream.codec', 'stream.language', 'audio.sampleRate', 'audio.channels'];
+  const labels = fields.flatMap(key => {
+    const field = stream.fields.find(item => item.key === key && item.status === 'present');
+    if (!field) return [];
+    return [key === 'audio.channels' ? `${formatField(field)} 声道` : formatField(field)];
+  });
+  return `音频轨道 #${stream.index}${labels.length ? ` · ${labels.join(' · ')}` : ''}`;
+}
+
+function renderSpectrogram(entry: FileEntry, state: SpectrogramState): HTMLElement {
+  const section = node('section', 'spectrogram-section');
+  section.id = 'spectrogram-section';
+  section.dataset.state = state.status;
+  section.setAttribute('aria-labelledby', 'spectrogram-heading');
+  const heading = node('div', 'section-heading');
+  const title = node('h4', '', '音轨频谱'); title.id = 'spectrogram-heading';
+  heading.append(title, node('span', '', 'FFmpeg · 本机生成'));
+  const controls = node('div', 'spectrogram-controls');
+  const trackField = node('div', 'spectrogram-track');
+  const label = node('label', '', '音频轨道'); label.htmlFor = 'audio-track';
+  const select = node('select', 'audio-track-select'); select.id = 'audio-track';
+  const streams = audioStreams(entry);
+  for (const stream of streams) {
+    const option = node('option', '', trackLabel(stream)); option.value = String(stream.index); select.append(option);
+  }
+  select.value = String(state.streamIndex);
+  select.disabled = state.status === 'loading' || removing.has(entry.id);
+  select.addEventListener('change', () => {
+    spectrograms.set(entry.id, { streamIndex: Number(select.value), status: 'idle' });
+    render();
+    announce('已切换音频轨道，可生成此轨道的频谱。');
+  });
+  trackField.append(label, select);
+  const buttons = node('div', 'spectrogram-actions');
+  const generateLabel = state.status === 'ready' ? '重新生成' : ['error', 'canceled'].includes(state.status) ? '重试生成' : '生成频谱';
+  const generate = action(generateLabel, () => { void generateSpectrogram(entry); });
+  generate.id = 'spectrogram-generate';
+  generate.disabled = Boolean(spectrogramJob) || removing.has(entry.id);
+  buttons.append(generate);
+  if (state.status === 'loading') {
+    const cancel = action(state.canceling ? '正在取消…' : '取消生成', () => { void cancelSpectrogram(entry); });
+    cancel.id = 'spectrogram-cancel';
+    // Keep the pending cancel control focusable until the task actually settles.
+    cancel.setAttribute('aria-disabled', String(Boolean(state.canceling)));
+    buttons.append(cancel);
+  }
+  controls.append(trackField, buttons);
+  const busyOther = spectrogramJob && spectrogramJob.id !== entry.id;
+  const busyName = busyOther ? entries.find(item => item.id === spectrogramJob!.id)?.name : undefined;
+  const statusText = {
+    idle: '尚未生成此音轨的频谱。', loading: state.canceling ? '正在取消生成，请稍候。' : '正在生成完整音轨频谱，长文件可能需要更长时间。',
+    ready: '频谱已生成。', error: '未能生成频谱，可重试生成。', canceled: '频谱生成已取消，可重试生成。',
+  }[state.status];
+  const status = node('p', `spectrogram-status${state.status === 'error' ? ' error-text' : ''}`, busyOther ? `正在生成${busyName ? `「${busyName}」的` : '另一个文件的'}频谱；完成后可生成此音轨，也可切回该文件取消。` : statusText);
+  status.id = 'spectrogram-status';
+  const figure = node('figure', 'spectrogram-figure');
+  const selected = streams.find(stream => stream.index === state.streamIndex);
+  // Never show a completed image under a different track's selection.
+  const result = state.status === 'ready' && state.result?.streamIndex === state.streamIndex ? state.result : undefined;
+  const sampleRate = result?.sampleRateHz ?? streamValue(selected, 'audio.sampleRate');
+  const duration = result?.durationSeconds ?? streamValue(selected, 'stream.duration');
+  const frequencyAxis = node('div', 'spectrogram-frequency');
+  frequencyAxis.setAttribute('aria-hidden', 'true');
+  frequencyAxis.append(node('span', '', typeof sampleRate === 'number' ? `${plotNumbers.format(sampleRate / 2)} Hz` : '频率 Hz'), node('span', '', '0 Hz'));
+  const frame = node('div', 'spectrogram-frame');
+  frame.setAttribute('aria-busy', String(state.status === 'loading'));
+  if (result) {
+    const image = node('img', 'spectrogram-image'); image.id = 'spectrogram-image';
+    image.src = result.imageDataUrl; image.width = result.width; image.height = result.height;
+    image.alt = `${entry.name}，音频轨道 #${state.streamIndex} 的频谱；横轴为时间，纵轴为频率，颜色表示信号强度。`;
+    image.setAttribute('aria-describedby', 'spectrogram-description');
+    frame.append(image);
+  } else {
+    const placeholder = node('div', 'spectrogram-placeholder');
+    if (state.status === 'loading') {
+      const spinner = node('span', 'spinner'); spinner.setAttribute('aria-hidden', 'true'); placeholder.append(spinner);
+    }
+    placeholder.append(node('span', '', state.status === 'idle' ? '点击“生成频谱”查看此音轨' : statusText));
+    frame.append(placeholder);
+  }
+  const timeAxis = node('div', 'spectrogram-time');
+  timeAxis.setAttribute('aria-hidden', 'true');
+  timeAxis.append(node('span', '', '0 s'), node('span', '', '时间（秒）'), node('span', '', typeof duration === 'number' ? `${plotNumbers.format(duration)} s` : '— s'));
+  const description = node('figcaption', 'spectrogram-description'); description.id = 'spectrogram-description';
+  const channels = result?.channels ?? streamValue(selected, 'audio.channels');
+  const ranges = result ? `时间 0–${plotNumbers.format(result.durationSeconds)} s；频率 0–${plotNumbers.format(result.sampleRateHz / 2)} Hz，线性刻度。` : '横轴为时间（秒），纵轴为频率（Hz），均为线性刻度。';
+  const channelNote = typeof channels === 'number' ? channels > 1 ? `${channels} 个声道合并显示。` : '单声道显示。' : '多个声道合并显示。';
+  description.textContent = `${ranges}颜色表示信号强度，显示范围 −120 至 0 dBFS，暗为弱、亮为强。${channelNote}频谱不能单独用于判断源文件是否真无损。`;
+  figure.append(frequencyAxis, frame, timeAxis, description);
+  section.append(heading, controls, status);
+  if (state.message) section.append(node('p', 'spectrogram-error', state.message));
+  section.append(figure);
+  return section;
+}
 
 function renderList(): void {
   const list = $('file-list');
@@ -187,8 +370,9 @@ function parameterTable(title: string, fields: MetadataField[], id: string): HTM
 function renderDetail(): void {
   const container = $('detail-content');
   const entry = entries.find(item => item.id === activeId);
+  const spectrum = spectrogramState(entry);
   const next = { id: entry?.id, state: entry?.state, result: entry?.result, message: entry?.message,
-    picking: entry ? false : picking };
+    picking: entry ? false : picking, spectrogram: spectrum, spectrogramBusyId: spectrum ? spectrogramJob?.id : undefined };
   // Background results must not replace the active file's DOM or steal its focus/scroll.
   if (renderedDetail && Object.keys(next).every(key =>
     next[key as keyof typeof next] === renderedDetail![key as keyof typeof next])) return;
@@ -241,6 +425,8 @@ function renderDetail(): void {
     detail.append(notice);
   }
   if (entry.result) {
+    if (spectrum) detail.append(renderSpectrogram(entry, spectrum));
+    else if (entry.result.category === 'video') detail.append(node('p', 'spectrogram-unavailable', '未读取到可用音轨，无法生成频谱；仍可查看视频参数。'));
     const file = entry.result.fields.filter(field => field.key.startsWith('file.'));
     const specialized = entry.result.fields.filter(field => !field.key.startsWith('file.'));
     if (file.length) detail.append(parameterTable('基础信息', file, 'base-info-table'));
@@ -304,7 +490,11 @@ function render(): void {
   $('view-hint').textContent = entries.length < 2 ? '添加多个文件可进行对比' : '当前列表可切换对比';
   const active = entries.find(item => item.id === activeId);
   document.title = active ? `${active.name} · File Analyzer` : 'File Analyzer · 文件参数';
-  if (focused && document.activeElement === document.body) document.getElementById(focused)?.focus({ preventScroll: true });
+  if (focused && document.activeElement === document.body) {
+    const previous = document.getElementById(focused);
+    if (previous && !previous.matches(':disabled')) previous.focus({ preventScroll: true });
+    else if (focused === 'spectrogram-cancel' && !compare) document.getElementById('spectrogram-generate')?.focus({ preventScroll: true });
+  }
 }
 
 $('add-files').addEventListener('click', () => { void chooseFiles(); });
