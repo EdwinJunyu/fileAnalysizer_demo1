@@ -1,14 +1,14 @@
 # Overview
 
-File Analyzer is a planned offline desktop utility for **Windows and macOS**. It will display metadata for audio, video, images, and Office documents in simple tables, support basic file comparisons, and generate static audio spectrograms. All file processing will stay on your computer.
+File Analyzer is an offline file analysis project for **Windows and macOS**. Its first implementation provides a TypeScript metadata API and a command-line interface for audio, video, images, and Office documents. A desktop interface, file comparison view, and static audio spectrograms are planned. All file processing stays on your computer.
 
-The project is currently in the planning stage. Source code and self-contained application packages are planned for distribution through GitHub.
+The parsing core is implemented and tested on Linux. Windows/macOS desktop packages are not available yet; source code is hosted on GitHub.
 
 # File Analyzer
 
 一个面向 **Windows 和 macOS** 的离线桌面小工具：**拖入文件 → 查看参数 → 按需查看频谱**。
 
-本仓库目前处于项目规划阶段，仅包含需求与实现方向，尚未实现应用、安装程序或测试。以下功能均为初版开发目标，不代表已完成能力。
+当前已实现**阶段一：解析基础**，提供 TypeScript 接口、命令行表格/JSON 输出及自动化测试。桌面界面、可视化对比、频谱和安装包尚未实现；当前运行验证环境为 Linux，Windows/macOS 实测将在打包阶段完成。
 
 ## 项目目标
 
@@ -23,9 +23,60 @@ The project is currently in the planning stage. Source code and self-contained a
 
 控制项目规模：优先复用成熟工具，不自行开发媒体解码器或通用解析框架。新功能只有在实际使用中发现需要时才评估，不将扩展方向自动加入开发计划。
 
+## 运行解析核心
+
+准备 Node.js **22 或以上**（推荐 24，见 `.node-version`）、FFprobe 和 ExifTool。完整测试还需要 FFmpeg。工具可安装到系统 `PATH`，也可通过下述选项指定路径。ExifTool 的 Office 元数据读取需要相应 Perl 依赖（如 `Archive::Zip`）；缺少时会提示问题，并保留直接读取到的 Office 属性和结构数量。
+
+在仓库根目录运行：
+
+```sh
+npm ci
+npm run build
+npm run analyze -- "path/to/file.mp4"
+npm run analyze -- "path/to/photo.jpg" "path/to/document.docx"
+```
+
+默认输出参数表格。需要纯 JSON 时直接调用构建后的命令，避免 npm 的运行提示混入输出：
+
+```sh
+node dist/src/cli.js --json "path/to/file.flac"
+node dist/src/cli.js --ffprobe "/path/to/ffprobe" --exiftool "/path/to/exiftool" "path/to/file.mp4"
+node dist/src/cli.js --help
+```
+
+选项还包括 `--tools-dir <目录>` 和 `--timeout <毫秒>`（默认 15000，允许 1 到 2147483647 的整数）。可使用环境变量 `FILE_ANALYZER_FFPROBE`、`FILE_ANALYZER_EXIFTOOL` 指定工具。路径含空格时需要引号；以 `-` 开头的文件名放在 `--` 后。
+
+退出码：`0` 表示成功（含未知格式的基础信息）；`1` 表示至少一个文件失败或部分解析；`2` 表示命令参数错误。批量解析中单个文件失败不影响后续文件。
+
+### 程序接口
+
+```js
+import { analyzeFile, analyzeFiles } from './dist/src/index.js';
+
+const result = await analyzeFile('/path/to/file.mp4');
+const results = await analyzeFiles(['/path/to/photo.png', '/path/to/book.xlsx']);
+```
+
+接口返回文件类别、识别方式、整体状态、`fields`、分轨道的 `streams`、`issues` 和解析工具的 `rawMetadata`。每个字段包含稳定的 `key`、中文名称、值、状态、来源和可选单位/说明；缺失值使用 `null`。字段状态为 `present`、`missing`、`not_applicable`、`unknown` 或 `error`；整体状态为 `ok`、`partial` 或 `error`。
+
+可选的第二个参数使用 `timeoutMs` 配置超时，与 CLI 共用整数和范围校验。无效配置会在分析文件之前抛出 `InvalidOptionsError`（`code: 'INVALID_OPTIONS'`），不会误报为文件损坏或识别失败。
+
+文件按内容识别，扩展名仅作回退提示。Office 工作表和幻灯片数量直接读取 OOXML 结构；Word 页数和字数保留保存属性的来源说明。FFprobe 仅允许本地文件/管道协议，不根据媒体内容访问网络地址。
+
+FFprobe 即使退出码为 `0`，也可能报告媒体数据损坏。此类诊断会保存在 `issues` 中并将结果标为 `partial`，同时保留已提取的参数；元数据解析不等同于完整解码或完整性检测。
+
+### 验证
+
+```sh
+npm run typecheck
+npm test
+```
+
+集成测试要求 FFprobe、FFmpeg 和 ExifTool 可用，不会静默跳过缺失工具。FFmpeg 用于生成短小的音视频、图片样本；Office 样本由代码生成，测试结束后清理，不提交二进制文件或私人素材。若 FFmpeg 不在 `PATH`，测试可设置 `FFMPEG_PATH`。本机曾验证的工具为 Node.js 24、FFmpeg/FFprobe 7.1.5、ExifTool 13.59；未打包这些工具到仓库。
+
 ## 初版支持范围
 
-下表是计划支持的格式与参数。实际字段取决于文件内容、编码方式和解析工具；并非每个文件都包含全部信息。
+下表格式已完成阶段一解析验证。实际字段取决于文件内容、编码方式和解析工具；并非每个文件都包含全部信息。
 
 | 类别 | 首批格式 | 计划提取的主要参数 |
 | --- | --- | --- |
@@ -146,7 +197,7 @@ Office 仅提取现成的文档属性和结构信息，不启动办公软件进�
 
 ## 开发顺序与验收
 
-### 阶段一：解析基础
+### 阶段一：解析基础（已实现）
 
 - 实现首批格式的识别和参数提取。
 - 整理必要的字段名称、单位和错误信息。
@@ -172,6 +223,6 @@ Office 仅提取现成的文档属性和结构信息，不启动办公软件进�
 
 ## 当前开发状态
 
-尚未建立应用代码、依赖清单、构建脚本或自动化测试，因此目前没有可执行的安装、开发启动和测试命令。实现这些能力后，应同步更新本 README，并记录实际支持的格式、平台架构和已知限制。
+已实现解析核心、命令行、依赖锁定、构建和测试。当前没有 Electron 窗口、频谱生成界面或发布安装包。源码运行需要用户自行准备解析工具；Windows/macOS 的实际兼容性和随包依赖将在后续阶段验证。
 
 首版的总体验收标准是：**参数可信、操作简单、离线可用，并在 Windows 和 macOS 上验证通过。** 完成这些目标后先实际使用，再决定是否增加功能。

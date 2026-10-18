@@ -1,0 +1,27 @@
+{
+  "name": "file-analyzer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Offline file metadata analysis core for a small desktop utility.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "analyze": "node dist/src/cli.js",
+    "test": "npm run build && node --test dist/test/*.test.js"
+  },
+  "dependencies": {
+    "fast-xml-parser": "5.11.2",
+    "file-type": "22.2.0",
+    "yauzl": "3.4.0"
+  },
+  "devDependencies": {
+    "@types/node": "26.6.5",
+    "@types/yauzl": "3.4.0",
+    "fflate": "0.8.3",
+    "typescript": "7.0.2"
+  }
+}
