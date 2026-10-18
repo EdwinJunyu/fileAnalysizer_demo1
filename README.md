@@ -1,14 +1,14 @@
 # Overview
 
-File Analyzer is an offline file analysis project for **Windows and macOS**. Its first implementation provides a TypeScript metadata API and a command-line interface for audio, video, images, and Office documents. A desktop interface, file comparison view, and static audio spectrograms are planned. All file processing stays on your computer.
+File Analyzer is an offline file analysis project for **Windows and macOS**. It provides a desktop interface with local file import, detailed metadata tables, and basic file comparisons, alongside a TypeScript API and command-line interface. Static audio spectrograms are planned. All file processing stays on your computer.
 
-The parsing core is implemented and tested on Linux. Windows/macOS desktop packages are not available yet; source code is hosted on GitHub.
+The parsing core and Electron desktop workflow are implemented and tested on Linux. Windows/macOS release packages are not available yet; source code is hosted on GitHub.
 
 # File Analyzer
 
 一个面向 **Windows 和 macOS** 的离线桌面小工具：**拖入文件 → 查看参数 → 按需查看频谱**。
 
-当前已实现**阶段一：解析基础**，提供 TypeScript 接口、命令行表格/JSON 输出及自动化测试。桌面界面、可视化对比、频谱和安装包尚未实现；当前运行验证环境为 Linux，Windows/macOS 实测将在打包阶段完成。
+当前已实现**阶段一：解析基础**和**阶段二：桌面交互**，提供 Electron 窗口、文件拖放/选择、详情与基础对比，以及 TypeScript 接口、命令行和自动化测试。频谱和发布安装包尚未实现；当前运行验证环境为 Linux，Windows/macOS 实测将在打包阶段完成。
 
 ## 项目目标
 
@@ -22,6 +22,25 @@ The parsing core is implemented and tested on Linux. Windows/macOS desktop packa
 - 接受任意类型的文件；对首批支持格式提供专属解析，其他格式提供基础信息。
 
 控制项目规模：优先复用成熟工具，不自行开发媒体解码器或通用解析框架。新功能只有在实际使用中发现需要时才评估，不将扩展方向自动加入开发计划。
+
+## 运行桌面应用
+
+准备下文的 Node.js、FFprobe 和 ExifTool 后，在仓库根目录运行：
+
+```sh
+npm ci
+npm start
+```
+
+`npm start` 会构建并启动 Electron。已经构建过时可使用 `npm run desktop`。首次安装会下载开发所需的 Electron；应用运行及解析文件无需联网。
+
+- 点击“添加文件”或拖入一个、多个本地文件；也可使用 `Ctrl+O` / `Cmd+O`。
+- 左侧选择文件，右侧查看基础信息、专属参数和各媒体轨道。
+- 列表包含至少两个文件时，可切换“参数对比”，比较当前列表中的常用参数。混合类型使用“不适用”，缺失属性显示“未记录”。
+- 每个文件分别显示等待、解析中、完成、部分解析或失败。部分解析及失败可点击“重新解析”。
+- “移除”和“清空列表”只移除本次会话中的条目，不删除或修改原文件。关闭窗口后不保存导入路径和结果。
+
+解析在后台 Worker 中串行执行，单个文件失败不影响其他文件。工具默认通过系统 `PATH` 查找，也可在启动前设置 `FILE_ANALYZER_FFPROBE`、`FILE_ANALYZER_EXIFTOOL`；修改环境配置后重新启动应用。此阶段没有单独的工具设置页面，也没有附带工具的完整发布包。
 
 ## 运行解析核心
 
@@ -70,9 +89,15 @@ FFprobe 即使退出码为 `0`，也可能报告媒体数据损坏。此类诊�
 ```sh
 npm run typecheck
 npm test
+npm run test:e2e
+npm run check:design
 ```
 
 集成测试要求 FFprobe、FFmpeg 和 ExifTool 可用，不会静默跳过缺失工具。FFmpeg 用于生成短小的音视频、图片样本；Office 样本由代码生成，测试结束后清理，不提交二进制文件或私人素材。若 FFmpeg 不在 `PATH`，测试可设置 `FFMPEG_PATH`。本机曾验证的工具为 Node.js 24、FFmpeg/FFprobe 7.1.5、ExifTool 13.59；未打包这些工具到仓库。
+
+`test:e2e` 用 Playwright 启动真实 Electron，测试文件选择、原生拖放、后台解析、对比、失败恢复、键盘及可访问性。Linux 无桌面会话时需要 Xvfb；测试启动器仅在 Linux 自动附加容器所需的 `--no-sandbox`，正常 `npm start` 不附加该参数。UI 测试和截图输出到忽略的 `test-results/`。
+
+`DESIGN.md` 记录单窗口界面规范，构建时生成运行时 CSS token；`check:design` 检查生成值与规范是否一致。UI 使用本地系统字体，没有在线字体或远程资源。
 
 ## 初版支持范围
 
@@ -205,7 +230,7 @@ Office 仅提取现成的文档属性和结构信息，不启动办公软件进�
 
 验收：使用各类代表性文件，核对实际提取的字段、单位和来源；文件缺少元数据、损坏或类型不匹配时，能够给出明确结果。
 
-### 阶段二：桌面交互
+### 阶段二：桌面交互（已实现）
 
 - 实现拖放、单文件详情和多文件对比。
 - 展示处理中、成功与失败状态。
@@ -223,6 +248,6 @@ Office 仅提取现成的文档属性和结构信息，不启动办公软件进�
 
 ## 当前开发状态
 
-已实现解析核心、命令行、依赖锁定、构建和测试。当前没有 Electron 窗口、频谱生成界面或发布安装包。源码运行需要用户自行准备解析工具；Windows/macOS 的实际兼容性和随包依赖将在后续阶段验证。
+已实现解析核心、命令行、Electron 单窗口、文件列表、详情/基础对比、后台 Worker 和状态恢复。当前没有频谱生成界面或发布安装包。源码运行需要用户自行准备解析工具；Windows/macOS 的实际兼容性和随包依赖将在后续阶段验证。
 
 首版的总体验收标准是：**参数可信、操作简单、离线可用，并在 Windows 和 macOS 上验证通过。** 完成这些目标后先实际使用，再决定是否增加功能。

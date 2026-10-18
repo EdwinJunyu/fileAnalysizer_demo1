@@ -1,0 +1,144 @@
+import { app, BrowserWindow, dialog, ipcMain, Menu, session } from 'electron';
+import type { IpcMainInvokeEvent } from 'electron';
+import { existsSync, readFileSync } from 'node:fs';
+import { isAbsolute, join, relative, sep } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DesktopJobs, WorkerAnalyzer } from './job-manager.js';
+
+const uiURL = new URL('../../ui/index.html', import.meta.url);
+const uiDirectory = fileURLToPath(new URL('.', uiURL));
+const partition = 'file-analyzer';
+let window: BrowserWindow | null = null;
+let jobs: DesktopJobs | undefined;
+let analyzer: WorkerAnalyzer | undefined;
+
+function requireWindow(event: IpcMainInvokeEvent): BrowserWindow {
+  if (!window || window.isDestroyed() || event.sender !== window.webContents ||
+    event.senderFrame !== window.webContents.mainFrame || event.senderFrame.url !== uiURL.href) {
+    throw new Error('不允许的窗口来源。');
+  }
+  return window;
+}
+
+function stringList(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 10_000 ||
+    !value.every(item => typeof item === 'string' && item.length > 0 && item.length <= 32_768 && !item.includes('\0'))) {
+    throw new Error('文件列表参数无效。');
+  }
+  return value as string[];
+}
+
+function filePaths(value: unknown): string[] {
+  const paths = stringList(value);
+  if (!paths.every(path => isAbsolute(path))) throw new Error('只能导入本地文件。');
+  return paths;
+}
+
+function configureIPC(): void {
+  ipcMain.handle('files:choose', async event => {
+    const source = requireWindow(event);
+    const currentJobs = jobs!;
+    const selection = await dialog.showOpenDialog(source, {
+      title: '添加本地文件', properties: ['openFile', 'multiSelections'],
+    });
+    return selection.canceled ? [] : currentJobs.register(filePaths(selection.filePaths));
+  });
+  ipcMain.handle('files:import', (event, paths: unknown) => {
+    requireWindow(event);
+    return jobs!.register(filePaths(paths));
+  });
+  ipcMain.handle('files:analyze', (event, ids: unknown) => {
+    requireWindow(event);
+    jobs!.analyzeFiles(stringList(ids));
+  });
+  ipcMain.handle('files:retry', (event, id: unknown) => {
+    requireWindow(event);
+    const [fileID] = stringList([id]);
+    jobs!.retryFile(fileID!);
+  });
+  ipcMain.handle('files:remove', (event, ids: unknown) => {
+    requireWindow(event);
+    jobs!.removeFiles(stringList(ids));
+  });
+}
+
+function createWindow(): void {
+  const toolsDirectory = join(process.resourcesPath, 'tools');
+  analyzer = new WorkerAnalyzer(existsSync(toolsDirectory) ? { bundledToolsDir: toolsDirectory } : {});
+  const backgroundColor = readFileSync(new URL('tokens.css', uiURL), 'utf8')
+    .match(/--color-background:\s*([^;]+);/)?.[1]?.trim();
+  if (!backgroundColor) throw new Error('界面颜色配置缺失，请先运行 npm run build。');
+  const activeWindow = new BrowserWindow({
+    width: 1100, height: 760, minWidth: 620, minHeight: 500,
+    title: 'File Analyzer', backgroundColor, show: false,
+    webPreferences: {
+      preload: fileURLToPath(new URL('./preload.cjs', import.meta.url)),
+      contextIsolation: true, nodeIntegration: false, sandbox: true,
+      partition, webSecurity: true, allowRunningInsecureContent: false,
+    },
+  });
+  window = activeWindow;
+  jobs = new DesktopJobs(analyzer.analyze, event => {
+    if (!activeWindow.isDestroyed()) activeWindow.webContents.send('files:event', event);
+  });
+  const currentJobs = jobs;
+  const currentAnalyzer = analyzer;
+  activeWindow.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  activeWindow.webContents.on('will-navigate', event => event.preventDefault());
+  activeWindow.webContents.on('will-frame-navigate', event => event.preventDefault());
+  activeWindow.webContents.on('will-attach-webview', event => event.preventDefault());
+  activeWindow.once('ready-to-show', () => activeWindow.show());
+  activeWindow.on('closed', () => {
+    currentJobs.close();
+    currentAnalyzer.close();
+    if (window === activeWindow) {
+      window = null;
+      jobs = undefined;
+      analyzer = undefined;
+    }
+  });
+  void activeWindow.loadFile(fileURLToPath(uiURL));
+}
+
+// Electron waits for ESM main loading to finish before ready; top-level awaiting ready deadlocks.
+void app.whenReady().then(() => {
+  if (process.platform === 'darwin') {
+    Menu.setApplicationMenu(Menu.buildFromTemplate([
+      { label: 'File Analyzer', submenu: [
+        { role: 'hide', label: '隐藏 File Analyzer' },
+        { role: 'hideOthers', label: '隐藏其他应用' },
+        { role: 'unhide', label: '显示全部' },
+        { type: 'separator' }, { role: 'quit', label: '退出 File Analyzer' },
+      ] },
+      { label: '编辑', submenu: [
+        { role: 'copy', label: '复制' }, { role: 'selectAll', label: '全选' },
+      ] },
+      { label: '窗口', submenu: [
+        { role: 'minimize', label: '最小化' }, { role: 'close', label: '关闭窗口' },
+      ] },
+    ]));
+  } else {
+    Menu.setApplicationMenu(null);
+  }
+  const localSession = session.fromPartition(partition);
+  localSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
+  localSession.setPermissionCheckHandler(() => false);
+  // All renderer resources are shipped locally. Neither imports nor metadata may open a network URL.
+  localSession.webRequest.onBeforeRequest((details, callback) => {
+    try {
+      const url = new URL(details.url);
+      const path = url.protocol === 'file:' ? relative(uiDirectory, fileURLToPath(url)) : '..';
+      callback({ cancel: path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path) });
+    } catch {
+      callback({ cancel: true });
+    }
+  });
+  configureIPC();
+  createWindow();
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+}).catch((error: unknown) => {
+  console.error('File Analyzer 启动失败：', error);
+  app.exit(1);
+});
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { jobs?.close(); analyzer?.close(); });

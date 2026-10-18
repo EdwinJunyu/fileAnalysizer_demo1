@@ -3,15 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "dist/src/desktop/main.js",
   "description": "Offline file metadata analysis core for a small desktop utility.",
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/build-ui.mjs",
+    "start": "npm run build && electron .",
+    "desktop": "electron .",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "analyze": "node dist/src/cli.js",
-    "test": "npm run build && node --test dist/test/*.test.js"
+    "test": "npm run build && node --test dist/test/*.test.js",
+    "test:e2e": "npm run build && playwright test",
+    "check:design": "node scripts/build-ui.mjs --check"
   },
   "dependencies": {
     "fast-xml-parser": "5.11.2",
@@ -19,9 +24,14 @@
     "yauzl": "3.4.0"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.64.1",
     "@types/node": "26.6.5",
     "@types/yauzl": "3.4.0",
+    "electron": "44.9.0",
+    "esbuild": "0.28.2",
     "fflate": "0.8.3",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "yaml": "2.9.1"
   }
 }

@@ -1,0 +1,16 @@
+{
+  "profile": "product-admin",
+  "sourceRoots": ["src/ui", "src/desktop"],
+  "locale": "zh-CN",
+  "canonicalMap": "DESIGN.md",
+  "requiredCapabilities": ["Scrollbar"],
+  "requiredCommands": ["unit", "e2e", "design"],
+  "commands": {
+    "unit": "npm test",
+    "e2e": "npm run test:e2e",
+    "design": "npm run check:design"
+  },
+  "evidence": {
+    "failurePaths": "test/e2e/desktop.spec.ts"
+  }
+}
