@@ -26,8 +26,15 @@ The application is developed and tested on Linux. Native Windows/macOS packaging
 ## 运行桌面应用
 
 源码运行需准备下文的 Node.js、FFprobe 和 ExifTool；生成频谱还需要 FFmpeg。在仓库根目录运行：
-
+### node 版本需至少22.12.0
 ```sh
+winget install --id OpenJS.NodeJS.LTS --exact --source winget （在终端使用此指令，下载最新LTS版本）
+```
+```sh
+npm -v
+nvm list
+nvm use <指定版本号>
+
 npm ci
 npm start
 ```
