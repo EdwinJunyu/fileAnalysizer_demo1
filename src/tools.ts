@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, type ChildProcess } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { join, resolve, isAbsolute, sep } from 'node:path';
@@ -10,6 +10,20 @@ export type ToolName = 'ffprobe' | 'exiftool';
 export interface ToolOutput {
   stdout: string;
   stderr: string;
+}
+
+// Each analysis worker has its own module instance and therefore its own children.
+const activeTools = new Set<{ child: ChildProcess; exited: Promise<void> }>();
+let shutdown: Promise<void> | undefined;
+
+/** Seal this worker's runner before killing and reaping its children. Not a public core API. */
+export function shutdownTools(): Promise<void> {
+  if (shutdown) return shutdown;
+  shutdown = Promise.resolve();
+  const running = [...activeTools];
+  for (const { child } of running) child.kill('SIGKILL');
+  shutdown = Promise.all(running.map(tool => tool.exited)).then(() => {});
+  return shutdown;
 }
 
 export class ToolError extends Error {
@@ -42,14 +56,22 @@ export async function toolPath(tool: ToolName, options: AnalysisOptions = {}): P
 
 export async function runTool(tool: ToolName, args: string[], options: AnalysisOptions = {}): Promise<ToolOutput> {
   const timeout = validateTimeout(options.timeoutMs);
+  const checkOpen = (): void => {
+    if (shutdown) throw new ToolError('TOOL_CANCELLED', `${tool} 解析已取消。`, tool);
+  };
+  checkOpen();
   const executable = await toolPath(tool, options);
+  // shutdown may happen while bundled-tool discovery is awaiting filesystem I/O.
+  checkOpen();
   return new Promise((resolveOutput, reject) => {
-    execFile(executable, args, {
-      encoding: 'utf8', timeout, maxBuffer: 16 * 1024 * 1024, windowsHide: true,
+    const child = execFile(executable, args, {
+      encoding: 'utf8', timeout, killSignal: 'SIGKILL', maxBuffer: 16 * 1024 * 1024, windowsHide: true,
     }, (error, stdout, stderr) => {
       if (!error) return resolveOutput({ stdout, stderr });
       const code = (error as NodeJS.ErrnoException).code;
-      if (code === 'ENOENT') {
+      if (shutdown) {
+        reject(new ToolError('TOOL_CANCELLED', `${tool} 解析已取消。`, tool));
+      } else if (code === 'ENOENT') {
         reject(new ToolError('TOOL_NOT_FOUND', `未找到 ${tool}，请安装工具或设置其路径。`, tool));
       } else if (code === 'EACCES' || code === 'EPERM') {
         reject(new ToolError('TOOL_NOT_EXECUTABLE', `${tool} 无法执行，请检查路径和权限。`, tool));
@@ -61,5 +83,9 @@ export async function runTool(tool: ToolName, args: string[], options: AnalysisO
         reject(new ToolError('TOOL_FAILED', `${tool} 解析失败：${stderr.trim().slice(0, 1200) || error.message}`, tool));
       }
     });
+    const running = { child, exited: new Promise<void>(resolveExit => {
+      child.once('close', () => { activeTools.delete(running); resolveExit(); });
+    }) };
+    activeTools.add(running);
   });
 }

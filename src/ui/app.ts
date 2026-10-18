@@ -62,11 +62,18 @@ async function addFiles(descriptors: DesktopFile[]): Promise<void> {
 
 async function chooseFiles(): Promise<void> {
   if (!bridge || picking) return;
+  const openerId = document.activeElement?.id;
   picking = true;
   render();
   try { await addFiles(await bridge.chooseFiles()); }
   catch (error) { report(error); }
-  finally { picking = false; render(); }
+  finally {
+    picking = false;
+    render();
+    // Rendering may replace the empty-state button or disable the original opener.
+    const opener = openerId ? document.getElementById(openerId) : null;
+    (opener && !opener.matches(':disabled') ? opener : $('add-files')).focus({ preventScroll: true });
+  }
 }
 
 async function removeFiles(ids: string[]): Promise<void> {

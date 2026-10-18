@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { setImmediate } from 'node:timers/promises';
+import { setImmediate, setTimeout } from 'node:timers/promises';
 import { test } from 'node:test';
 import type { DesktopEvent } from '../src/desktop/contracts.js';
 import { DesktopJobs, WorkerAnalyzer } from '../src/desktop/job-manager.js';
@@ -150,13 +150,66 @@ test('真实Worker在后台解析未知格式并返回文件错误，不依赖�
     const absent = await analyzer.analyze(join(dir, 'absent.bin'));
     assert.equal(absent.status, 'error');
     assert.equal(absent.issues[0]?.code, 'FILE_NOT_FOUND');
-  } finally { analyzer.close(); await rm(dir, { recursive: true, force: true }); }
+  } finally { await analyzer.close(); await rm(dir, { recursive: true, force: true }); }
 });
 
 test('Worker异常转为可重试失败；关闭后禁止新增分析', async () => {
   const analyzer = new WorkerAnalyzer({ timeoutMs: -1 });
   try {
     await assert.rejects(analyzer.analyze(resolve('unused.txt')), /timeoutMs/);
-  } finally { analyzer.close(); }
+  } finally { await analyzer.close(); }
   await assert.rejects(analyzer.analyze(resolve('unused.txt')), /已关闭/);
 });
+
+test('关闭 Worker 会先杀死并回收忽略 SIGTERM 的解析工具，重复关闭共用同一任务',
+  { skip: process.platform === 'win32', timeout: 10_000 }, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'file-analyzer-worker-child-'));
+    const pidFile = join(dir, 'pid');
+    const executable = join(dir, 'ffprobe.cjs');
+    const audio = join(dir, 'audio.wav');
+    const analyzer = new WorkerAnalyzer({ ffprobePath: executable, timeoutMs: 60_000 });
+    let pid: number | undefined;
+    let pending: Promise<void> | undefined;
+    try {
+      await writeFile(audio, 'The WAV suffix routes this damaged fixture to ffprobe.');
+      await writeFile(executable, `#!${process.execPath}\nprocess.on('SIGTERM', () => {}); require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); setInterval(() => {}, 1000);\n`, { mode: 0o700 });
+      pending = assert.rejects(analyzer.analyze(audio), /已关闭/);
+      const deadline = Date.now() + 5000;
+      while (Date.now() < deadline) {
+        try { pid = Number(await readFile(pidFile, 'utf8')); break; }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
+        await setTimeout(20);
+      }
+      assert.ok(pid, 'The real tool process must have started before shutdown.');
+      process.kill(pid, 0);
+      const closing = analyzer.close();
+      assert.equal(analyzer.close(), closing);
+      await closing;
+      await pending;
+      assert.throws(() => process.kill(pid!, 0), { code: 'ESRCH' });
+    } finally {
+      await analyzer.close();
+      await pending;
+      if (pid) { try { process.kill(pid, 'SIGKILL'); } catch {} }
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+test('刚创建 Worker 即关闭也等待退出，不允许延迟启动工具',
+  { skip: process.platform === 'win32', timeout: 15_000 }, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'file-analyzer-worker-immediate-close-'));
+    const audio = join(dir, 'audio.wav');
+    const executable = join(dir, 'ffprobe.cjs');
+    const marker = join(dir, 'unexpected-start');
+    try {
+      await writeFile(audio, 'The WAV suffix routes this damaged fixture to ffprobe.');
+      await writeFile(executable, `#!${process.execPath}\nrequire('node:fs').writeFileSync(${JSON.stringify(marker)}, 'started'); setInterval(() => {}, 1000);\n`, { mode: 0o700 });
+      for (let attempt = 0; attempt < 8; attempt++) {
+        const analyzer = new WorkerAnalyzer({ ffprobePath: executable });
+        const pending = assert.rejects(analyzer.analyze(audio), /已关闭/);
+        await analyzer.close();
+        await pending;
+      }
+      await assert.rejects(readFile(marker), { code: 'ENOENT' });
+    } finally { await rm(dir, { recursive: true, force: true }); }
+  });

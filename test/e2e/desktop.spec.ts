@@ -41,6 +41,41 @@ async function completed(count: number): Promise<void> {
   await expect(page.locator('#list-summary')).toHaveText(`${count} 个文件 · ${count} 个已处理`);
 }
 
+test('文件选择取消或出错后恢复键盘焦点，空态消失时使用添加按钮', async () => {
+  await application.evaluate(({ dialog }) => {
+    dialog.showOpenDialog = async () => ({ canceled: true, filePaths: [] });
+  });
+  for (const id of ['empty-add', 'add-files']) {
+    const opener = page.locator(`#${id}`);
+    await opener.focus();
+    await opener.press('Enter');
+    await expect(page.locator('#add-files')).toBeEnabled();
+    await expect(opener).toBeFocused();
+  }
+
+  // A shortcut launched without a focused control returns to the primary action.
+  await page.evaluate(() => { (document.activeElement as HTMLElement | null)?.blur(); });
+  await page.keyboard.press(process.platform === 'darwin' ? 'Meta+o' : 'Control+o');
+  await expect(page.locator('#add-files')).toBeEnabled();
+  await expect(page.locator('#add-files')).toBeFocused();
+
+  await application.evaluate(({ dialog }) => {
+    dialog.showOpenDialog = async () => { throw new Error('picker unavailable'); };
+  });
+  await page.locator('#empty-add').focus();
+  await page.locator('#empty-add').press('Enter');
+  await expect(page.locator('#app-error')).toContainText('picker unavailable');
+  await expect(page.locator('#empty-add')).toBeFocused();
+
+  await application.evaluate(({ dialog }, path) => {
+    dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] });
+  }, fixtures.files.wav!);
+  await page.locator('#empty-add').press('Enter');
+  await completed(1);
+  await expect(page.locator('#empty-add')).toHaveCount(0);
+  await expect(page.locator('#add-files')).toBeFocused();
+});
+
 test('真实后台解析单个/多个文件，详情及混合类型对比可用', async () => {
   await expect(page.getByRole('heading', { name: '把文件拖到这里' })).toBeVisible();
   await expect(page.getByRole('tab', { name: '参数对比' })).toBeDisabled();

@@ -11,6 +11,16 @@ const partition = 'file-analyzer';
 let window: BrowserWindow | null = null;
 let jobs: DesktopJobs | undefined;
 let analyzer: WorkerAnalyzer | undefined;
+const pendingCleanup = new Set<Promise<void>>();
+let quitting = false;
+let cleanupComplete = false;
+
+function closeAnalysis(currentJobs: DesktopJobs, currentAnalyzer: WorkerAnalyzer): void {
+  currentJobs.close();
+  const cleanup = currentAnalyzer.close();
+  pendingCleanup.add(cleanup);
+  void cleanup.then(() => pendingCleanup.delete(cleanup));
+}
 
 function requireWindow(event: IpcMainInvokeEvent): BrowserWindow {
   if (!window || window.isDestroyed() || event.sender !== window.webContents ||
@@ -89,8 +99,7 @@ function createWindow(): void {
   activeWindow.webContents.on('will-attach-webview', event => event.preventDefault());
   activeWindow.once('ready-to-show', () => activeWindow.show());
   activeWindow.on('closed', () => {
-    currentJobs.close();
-    currentAnalyzer.close();
+    closeAnalysis(currentJobs, currentAnalyzer);
     if (window === activeWindow) {
       window = null;
       jobs = undefined;
@@ -135,10 +144,22 @@ void app.whenReady().then(() => {
   });
   configureIPC();
   createWindow();
-  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
+  app.on('activate', () => { if (!quitting && BrowserWindow.getAllWindows().length === 0) createWindow(); });
 }).catch((error: unknown) => {
   console.error('File Analyzer 启动失败：', error);
   app.exit(1);
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => { jobs?.close(); analyzer?.close(); });
+app.on('before-quit', event => {
+  if (cleanupComplete) return;
+  if (jobs && analyzer) closeAnalysis(jobs, analyzer);
+  if (!pendingCleanup.size) return;
+  event.preventDefault();
+  if (quitting) return;
+  quitting = true;
+  // A window may already be destroyed, so wait for tracked cleanups as well as the current one.
+  void Promise.all([...pendingCleanup]).then(() => {
+    cleanupComplete = true;
+    app.quit();
+  });
+});

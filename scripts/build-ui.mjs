@@ -3,7 +3,7 @@ import { parse } from 'yaml';
 import { build } from 'esbuild';
 
 const source = await readFile(new URL('../DESIGN.md', import.meta.url), 'utf8');
-const header = source.match(/^---\n([\s\S]*?)\n---/);
+const header = source.replace(/\r\n/g, '\n').match(/^---\n([\s\S]*?)\n---/);
 if (!header) throw new Error('DESIGN.md must contain token frontmatter');
 const tokens = parse(header[1]);
 const lines = [];

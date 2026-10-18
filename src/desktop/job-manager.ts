@@ -129,8 +129,9 @@ export class DesktopJobs {
 
 /** Only the worker imports the parsing core; the Electron main process stays responsive. */
 export class WorkerAnalyzer {
-  private readonly workers = new Set<Worker>();
+  private readonly workers = new Map<Worker, { exited: Promise<void>; cancel: () => void }>();
   private closed = false;
+  private shutdown: Promise<void> | undefined;
 
   constructor(private readonly options: AnalysisOptions = {}) {}
 
@@ -140,7 +141,6 @@ export class WorkerAnalyzer {
       const worker = new Worker(new URL('./worker.js', import.meta.url), {
         workerData: { path, options: this.options },
       });
-      this.workers.add(worker);
       let settled = false;
       const finish = (result: AnalysisResult | undefined, error?: Error): void => {
         if (settled) return;
@@ -148,21 +148,36 @@ export class WorkerAnalyzer {
         if (error) reject(error);
         else resolveResult(result!);
       };
-      worker.once('message', (message: { result?: AnalysisResult; error?: string }) => {
+      worker.on('message', (message: { result?: AnalysisResult; error?: string; closed?: boolean }) => {
+        if (message.closed) {
+          // The worker has sealed its tool runner and reaped every child before this acknowledgement.
+          void worker.terminate();
+          return;
+        }
         if (message.result) finish(message.result);
         else finish(undefined, new Error(message.error || '分析线程返回了无效结果。'));
       });
       worker.once('error', error => finish(undefined, error instanceof Error ? error : new Error(String(error))));
-      worker.once('exit', code => {
-        this.workers.delete(worker);
-        finish(undefined, new Error(`分析线程意外退出（${code}），请重试。`));
+      const exited = new Promise<void>(resolveExit => {
+        worker.once('exit', code => {
+          this.workers.delete(worker);
+          finish(undefined, new Error(`分析线程意外退出（${code}），请重试。`));
+          resolveExit();
+        });
       });
+      this.workers.set(worker, { exited, cancel: () => finish(undefined, new Error('分析窗口已关闭。')) });
     });
   };
 
-  close(): void {
+  close(): Promise<void> {
+    if (this.shutdown) return this.shutdown;
     this.closed = true;
-    for (const worker of this.workers) void worker.terminate();
-    this.workers.clear();
+    const active = [...this.workers];
+    for (const [worker, state] of active) {
+      state.cancel();
+      worker.postMessage('close');
+    }
+    this.shutdown = Promise.all(active.map(([, state]) => state.exited)).then(() => {});
+    return this.shutdown;
   }
 }

@@ -93,7 +93,7 @@ Import is available while parsing. Processing is serial in a background worker; 
 
 Empty state explains drag/drop and offers the same Add files action. Waiting/processing states name the activity without a fake percentage. Missing tools keep base information, with a correction hint and retry. Partial parsing preserves available fields. Generic failures leave other files usable. Comparison distinguishes unavailable, missing and not-applicable values and never aggregates unrelated media tracks.
 
-All controls use native buttons and visible focus. Icons have text labels or localized accessible names. No product-native alert/confirm/prompt calls. A drag interaction always has a picker alternative. Reduced motion disables animation. Focus remains on stable controls during updates and returns to a surviving file/add button after removal.
+All controls use native buttons and visible focus. Icons have text labels or localized accessible names. No product-native alert/confirm/prompt calls. A drag interaction always has a picker alternative. Reduced motion disables animation. Focus remains on stable controls during updates and returns to a surviving file/add button after removal. When the native picker closes, focus returns to its opener; if that control has disappeared, use the primary Add files button.
 
 ## Do's and Don'ts
 
