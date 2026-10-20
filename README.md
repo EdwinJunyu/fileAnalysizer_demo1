@@ -1,6 +1,6 @@
 # Overview
 
-File Analyzer is an offline file analysis project for **Windows and macOS**. It provides local file import, detailed metadata tables, basic file comparisons, and on-demand static spectrograms for a selected audio track. A TypeScript API and metadata command-line interface are also available. All file processing stays on your computer.
+File Analyzer is an offline file analysis project for **Windows and macOS**. It provides local file import, metadata tables, basic comparisons, static spectrograms, privacy metadata inspection, and PDF document/page analysis. A TypeScript API and metadata command-line interface are also available. All file processing stays on your computer.
 
 The application is developed and tested on Linux. Native Windows/macOS packaging and validation are configured separately; see [packaging instructions](docs/PACKAGING.md) for build prerequisites and release checks. No release has been published yet.
 
@@ -8,7 +8,9 @@ The application is developed and tested on Linux. Native Windows/macOS packaging
 
 一个面向 **Windows 和 macOS** 的离线桌面小工具：**拖入文件 → 查看参数 → 按需查看频谱**。
 
-当前提供 Electron 窗口、文件拖放/选择、详情与基础对比、按音轨生成静态频谱，以及 TypeScript 接口、元数据命令行和自动化测试。第三阶段同时补充完整包构建和原生平台 CI；当前云环境为 Linux，Windows/macOS 的实际构建与安装验收结果须以原生平台运行记录为准，尚未发布 Releases 应用包。
+当前提供 Electron 窗口、文件拖放/选择、详情与可排序的多文件对比、参数解释与用途计算、隐私元数据检查、PDF 专项分析、按音轨生成静态频谱，以及 TypeScript 接口、元数据命令行和自动化测试。第三阶段同时补充完整包构建和原生平台 CI；当前云环境为 Linux，Windows/macOS 的实际构建与安装验收结果须以原生平台运行记录为准，尚未发布 Releases 应用包。
+
+本次拓展功能、用途备注、审阅修复与验证结果见 [更新记录](CHANGELOG.md)。
 
 ## 项目目标
 
@@ -131,6 +133,7 @@ npm run check:design
 | 视频 | MP4、MKV、MOV、WebM | 容器格式、视频编码、像素尺寸、帧率、时长、码率，以及各音轨、字幕轨的可用参数 |
 | 图片 | JPEG、PNG、WebP、TIFF、GIF | 像素尺寸、DPI、位深、色彩空间、透明度，以及可用的 EXIF 等元数据 |
 | Office | DOCX、XLSX、PPTX | 作者、文档创建与修改时间、工作表数量、幻灯片数量，以及文档中可读取的统计信息 |
+| PDF | PDF | 页数、逐页 MediaBox 尺寸、旋转、加密状态、版本及可读取的文档属性 |
 | 其他文件 | 不限扩展名 | 文件名、大小、文件系统时间，以及能够识别的实际文件类型 |
 
 格式名称与编码名称分别展示。例如，MP4 是容器格式，其中的视频和音轨可以使用不同编码；M4A 和 OGG 的编码属性也需要根据实际音轨判断。
@@ -141,7 +144,7 @@ Office 仅提取现成的文档属性和结构信息，不启动办公软件进�
 
 ## 初版边界
 
-初版只完成文件导入、参数表格、基础对比和静态频谱，不包含：
+当前提供文件导入、参数表格、基础对比、静态频谱，以及下述参数解释、用途计算、隐私元数据检查和 PDF 分析，不包含：
 
 - 复杂对比工作台、自动质量评分或“真无损／假无损”鉴定。
 - 频谱缩放、时间范围交互、编辑功能或自研频谱引擎。
@@ -151,6 +154,31 @@ Office 仅提取现成的文档属性和结构信息，不启动办公软件进�
 - 独立的精简可执行安装包、依赖工具自动下载或自动更新系统。
 
 这些功能没有默认实施计划，后续按真实需求单独决定。
+
+## 参数解释与用途计算
+
+详情与对比表中的常用字段提供可展开的“参数解释”，覆盖编码、码率、采样率、位深、声道、像素、DPI、帧率和 Office 统计等概念。点击或用键盘展开即可查看；原始值、来源和异常状态保持独立。
+
+- **图片打印尺寸**：详情中的“用途计算”根据像素宽高和目标 DPI 换算厘米尺寸：`像素 ÷ 目标 DPI × 2.54`。默认 300 DPI 是明确的计算条件，不是文件元数据的默认值。可输入 1～9600 的小数，点击“计算尺寸”或按 Enter。修改条件后旧结果立即失效；无效输入或缺失像素尺寸会显示原因。结果假设不裁切、不重采样，不保证实际印刷质量，也不修改文件。
+- **音轨 PCM 数据量**：按每个音轨的 `采样率 × 位深 × 声道数 × 秒数 ÷ 8`，估算未压缩、紧密存储的 PCM 每分钟数据量。有该轨道的有效时长时，也展示总量；不使用容器时长替代。缺失或不适用的位深等参数不会被猜测为 16 bit。估算不含文件头、对齐和元数据，不代表当前压缩文件大小或实际音质。
+
+打印计算条件在本次会话切换文件或详情/对比时保留，移除或重新解析文件时清除。此功能完全离线；自动判断“真无损”、印刷质量或剪辑软件兼容性仍不在范围内。
+
+## 隐私元数据检查
+
+解析后，详情中的“隐私元数据检查”集中列出已读取的 GPS/位置、作者/署名/联系信息、设备品牌型号和序列号等记录，包括 MOV 文件的 `com.apple.quicktime.author`、`com.apple.quicktime.make` 和 `com.apple.quicktime.model` 标签。发现项默认折叠，展开后显示值及来源。检查仅在本机读取，不修改或清理元数据、不上传文件、不保存检查历史。
+
+状态区分“已检查支持的字段”“检查不完整”“未能检查”和“未支持此格式”。工具缺失、损坏和加密等问题不会显示为完整检查。未发现支持字段不代表文件不含隐私：正文、图像内容、批注、附件、历史版本和未支持的厂商字段不在范围内。音视频检查 FFprobe 返回的文件/轨道标签；图片、Office、PDF 复用 ExifTool，Office/PDF 还检查直接读取的文档属性。系统路径、文件名及系统时间不作为内部隐私发现项。最多展示 100 项、每项最多 2048 字符；超出范围会标为检查不完整。
+
+CLI 表格展示检查摘要、发现项和来源。API/JSON 的 `privacy` 包含 `status`（`checked`、`partial`、`unavailable`、`unsupported`）、`findings`、`checkedSources`、`limitations`，可供后续批量筛选使用。发现项不是安全评分，`checked` 也不代表没有隐私。
+
+## PDF 专项分析
+
+PDF 按内容识别，详情/对比显示页数、加密状态和版本，文档属性包括可读取的作者、标题、主题、关键词、创建应用、生成程序及记录时间；缺失属性保持“未记录”，不自动填入解析器信息。作者同时进入隐私检查。
+
+“PDF 页面尺寸”可展开逐页查看 MediaBox 宽高（pt 和换算的 mm）及旋转角度。尺寸计入页面 UserUnit，但未应用旋转，也不等同于 CropBox 裁切区或打印机可打印区域。混合尺寸文档分别展示各页。单页属性异常时标明对应页码，保留总页数、文档属性和其他可读取页面，并标为部分解析。API/JSON 的 `pdfPages` 保留实际检查的页码和尺寸。
+
+固定版本 pdf-lib 在独立线程中只读解析页面结构，ExifTool 读取文档元数据。检查不渲染页面、不执行 PDF JavaScript、不访问外部链接、不修改文件，也不尝试解密。加密 PDF 只保留无需解密即可读取的记录，并标为部分解析。结构解析限制为 64 MiB 文件、128 MiB 线程旧生代堆上限（不含文件缓冲等内存）及前 200 页尺寸；超出范围或超时均说明未检查的部分，并保留可用结果。`--timeout` 同样约束结构解析；移除文件和退出应用会终止解析线程。此功能不构成恶意内容检测、完整性保证或密码破解，不含预览、OCR、字体嵌入审计、编辑或隐私清理。
 
 ## 使用流程与界面
 
@@ -168,6 +196,8 @@ Office 仅提取现成的文档属性和结构信息，不启动办公软件进�
 | 频谱区域 | 选择音轨、点击生成、显示生成中或失败状态，以及静态频谱图 |
 
 多文件对比先显示文件名、类型、大小等共同字段，同类型文件增加码率、时长或像素尺寸等常用字段。不提供自定义对比规则，其他参数在单文件详情中查看。
+
+对比表中的文件列可独立排序：拖动列标题中的“拖动排序”到目标列左侧或右侧，整列参数随之移动；蓝色插入线提示放置位置。拖到表格左右边缘时自动横向滚动。也可使用每列的左右箭头，或聚焦“拖动排序”后按 `Alt+←` / `Alt+→`。“恢复添加顺序”可重置排序。列顺序在本次会话切换视图、解析完成和重试时保留；新文件追加到末尾，移除文件只删除对应列。左侧文件列表及实际解析队列仍按添加顺序排列。拖动取消不改变顺序。
 
 ## 数据准确性与展示规则
 
@@ -274,8 +304,16 @@ Office 仅提取现成的文档属性和结构信息，不启动办公软件进�
 
 验收：使用已知频率的音频核对频谱显示，并检查多音轨选择与长文件的响应情况；断网时核心流程可用；两个系统均能安装、解析文件并生成频谱。
 
+### 阶段四：分析辅助与对比增强（已实现）
+
+- 提供参数解释、图片打印尺寸计算和按音轨的 PCM 数据量估算。
+- 提供带来源及检查状态的隐私元数据检查，以及 PDF 文档属性和逐页尺寸分析。
+- 支持对比文件列独立拖动排序、边缘自动滚动、键盘移动和恢复添加顺序。
+
+验收：Linux 环境通过 170 项核心测试和 26 项真实 Electron 端到端测试，包含异常 PDF 保留可用结果、QuickTime 隐私标签和恢复排序后的焦点可见性。具体范围与限制见 [更新记录](CHANGELOG.md)。
+
 ## 当前开发状态
 
-已实现解析核心、元数据命令行、Electron 单窗口、文件列表、详情/基础对比、静态频谱、后台生成/取消和工具进程回收。提供完整包构建与原生 CI 配置；源码运行仍需用户自行准备解析工具。当前没有已发布安装包，Windows/macOS 的构建、安装与离线验收尚需在原生环境执行，详见打包说明。
+已实现解析核心、元数据命令行、Electron 单窗口、文件列表、详情/可排序对比、参数解释与用途计算、隐私元数据检查、PDF 专项分析、静态频谱、后台生成/取消和工具进程回收。提供完整包构建与原生 CI 配置；源码运行仍需用户自行准备解析工具。当前没有已发布安装包，Windows/macOS 的构建、安装与离线验收尚需在原生环境执行，详见打包说明。
 
 首版的总体验收标准是：**参数可信、操作简单、离线可用，并在 Windows 和 macOS 上验证通过。** 完成这些目标后先实际使用，再决定是否增加功能。

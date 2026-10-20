@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createFixtures } from '../fixtures.js';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
+import { pdfFixture, encryptedPdfFixture } from '../pdf-fixtures.js';
+import { runTool } from '../../src/tools.js';
 
 const require = createRequire(import.meta.url);
 const executablePath = require('electron') as string;
@@ -15,7 +17,21 @@ let application: ElectronApplication;
 let page: Page;
 let sandboxDirectory: string;
 
-test.beforeAll(async () => { fixtures = await createFixtures(); });
+test.beforeAll(async () => {
+  fixtures = await createFixtures();
+  for (const [key, bytes] of [
+    ['pdf', await pdfFixture('Public <img src=x onerror=alert(1)> Author')],
+    ['pdfClean', await pdfFixture()], ['pdfEncrypted', encryptedPdfFixture()],
+  ] as const) {
+    fixtures.files[key] = join(fixtures.dir, `${key}.pdf`);
+    await writeFile(fixtures.files[key]!, bytes);
+  }
+  fixtures.files.privateImage = join(fixtures.dir, 'private-photo.jpg');
+  await copyFile(fixtures.files.jpeg!, fixtures.files.privateImage);
+  await runTool('exiftool', ['-overwrite_original', '-Artist=Public Photographer', '-GPSLatitude=0',
+    '-GPSLatitudeRef=N', '-GPSLongitude=12.34', '-GPSLongitudeRef=E', '-Make=Public Camera',
+    '-Model=Public Model', '-ExifIFD:SerialNumber=PUBLIC-123', fixtures.files.privateImage]);
+});
 test.afterAll(async () => { await fixtures.cleanup(); });
 test.beforeEach(async () => {
   sandboxDirectory = await mkdtemp(join(tmpdir(), 'file-analyzer-electron-'));
@@ -82,7 +98,7 @@ test('真实后台解析单个/多个文件，详情及混合类型对比可用'
   await pick([fixtures.files.wav!, fixtures.files.png!, fixtures.files.docx!]);
   await completed(3);
   await expect(page.locator('#detail-content')).toContainText('48,000 Hz');
-  await expect(page.getByRole('heading', { name: '音频轨道 #0' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '音频轨道 #0', exact: true })).toBeVisible();
   await page.getByRole('button', { name: /sample.png.*解析完成/ }).click();
   await expect(page.locator('#detail-content')).toContainText('299.9994 dpi');
   await expect(page.getByRole('heading', { name: '文件参数', exact: true })).toBeVisible();
@@ -221,4 +237,228 @@ test('键盘、窄窗口、离线状态及可访问性', async () => {
   expect(await page.evaluate(() => getComputedStyle(document.querySelector('.spinner') ?? document.body).animationName)).toBe('none');
   const unavailable = await page.evaluate(() => typeof (window as unknown as { require?: unknown }).require);
   expect(unavailable).toBe('undefined');
+});
+
+test('打印用途计算保留条件、验证输入，并与文件记录的 DPI 区分', async () => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  await page.context().setOffline(true);
+  await pick([fixtures.files.png!, fixtures.files.wav!]);
+  await completed(2);
+  const input = page.getByLabel('目标打印 DPI', { exact: true });
+  await expect(input).toHaveValue('300');
+  await expect(page.locator('#print-result')).toHaveText('按 300 DPI：宽 0.67733 cm × 高 0.508 cm');
+  await expect(page.locator('#print-hint')).toContainText('不是文件记录值');
+
+  await input.fill('0');
+  await expect(page.locator('#print-result')).toHaveText('条件已更改，请计算。');
+  await input.press('Enter');
+  await expect(input).toBeFocused();
+  await expect(input).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.locator('#print-error')).toContainText('1 至 9600');
+  await input.fill('');
+  await input.press('Enter');
+  await expect(page.locator('#print-result')).toHaveText('暂无可用的打印尺寸。');
+  await input.fill('150');
+  await input.press('Enter');
+  await expect(input).not.toHaveAttribute('aria-invalid', 'true');
+  await expect(page.locator('#print-result')).toHaveText('按 150 DPI：宽 1.3547 cm × 高 1.016 cm');
+  await expect(page.locator('#file-parameters-table')).toContainText('299.9994 dpi');
+
+  const help = page.locator('#detail-content summary[aria-label="水平 DPI：参数解释"]');
+  await help.focus();
+  await page.keyboard.press('Enter');
+  await expect(help.locator('..')).toHaveAttribute('open', '');
+  await expect(help.locator('..')).toContainText('缺失或冲突时不假设为 72');
+  await page.getByRole('tab', { name: '参数对比' }).click();
+  await page.getByRole('tab', { name: '文件详情' }).click();
+  await expect(input).toHaveValue('150');
+  await expect(help.locator('..')).toHaveAttribute('open', '');
+
+  await page.getByRole('button', { name: /sample.wav.*解析完成/ }).click();
+  await expect(page.locator('.usage-audio')).toContainText('11,520,000 byte');
+  await page.getByRole('button', { name: /sample.png.*解析完成/ }).click();
+  await expect(input).toHaveValue('150');
+  await expect(page.locator('#print-result')).toContainText('按 150 DPI');
+  await page.setViewportSize({ width: 390, height: 780 });
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await input.fill('abc');
+  await page.getByRole('button', { name: '计算尺寸', exact: true }).click();
+  expect((await new AxeBuilder({ page }).setLegacyMode().analyze()).violations).toEqual([]);
+  await input.fill('150'); await input.press('Enter');
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: 'test-results/usage-print-narrow.png', fullPage: true });
+  await page.locator('.usage-calculations').screenshot({ path: 'test-results/usage-print-panel.png' });
+  await page.getByRole('button', { name: '从列表移除 sample.png', exact: true }).click();
+  await pick([fixtures.files.png!]); await completed(2);
+  await page.getByRole('button', { name: /sample.png.*解析完成/ }).click();
+  await expect(input).toHaveValue('300');
+  expect(pageErrors).toEqual([]);
+});
+
+test('有损位深不默认猜测，音频参数解释在详情和对比中可用', async () => {
+  await pick([fixtures.files.mp3!, fixtures.files.wav!]);
+  await completed(2);
+  await expect(page.locator('.usage-audio')).toContainText('缺少有效的采样率、位深或声道数');
+  await expect(page.locator('.usage-audio')).not.toContainText('每分钟约');
+  const detailHelp = page.locator('summary[aria-label="采样率：参数解释"]');
+  await detailHelp.click();
+  await expect(detailHelp.locator('..')).toContainText('提高采样率不会恢复已丢失的高频');
+  await page.getByRole('tab', { name: '参数对比' }).click();
+  const compareHelp = page.locator('summary[aria-label="采样率（首个音频轨道）：参数解释"]');
+  await compareHelp.focus(); await page.keyboard.press('Enter');
+  await expect(compareHelp.locator('..')).toContainText('提高采样率不会恢复已丢失的高频');
+  expect((await new AxeBuilder({ page }).setLegacyMode().analyze()).violations).toEqual([]);
+  await page.screenshot({ path: 'test-results/parameter-help-comparison.png', fullPage: true });
+});
+
+test('真实图片的 GPS、作者和设备信息可按来源检查，切换文件不泄漏旧结果', async () => {
+  await page.context().setOffline(true);
+  const before = await readFile(fixtures.files.privateImage!);
+  await pick([fixtures.files.privateImage!, fixtures.files.pdfClean!]); await completed(2);
+  await expect(page.locator('#privacy-section')).toHaveAttribute('data-state', 'checked');
+  await expect(page.locator('#privacy-metadata-table')).not.toBeVisible();
+  await page.locator('#privacy-records-summary').focus(); await page.keyboard.press('Enter');
+  await expect(page.locator('#privacy-metadata-table')).toContainText('Public Photographer');
+  await expect(page.locator('#privacy-metadata-table')).toContainText('PUBLIC-123');
+  await expect(page.locator('#privacy-metadata-table')).toContainText('ExifTool: GPS:GPSLatitude');
+  const latitude = page.locator('#privacy-metadata-table').getByRole('cell', { name: 'ExifTool: GPS:GPSLatitude', exact: true }).locator('..');
+  await expect(latitude.getByRole('cell', { name: '0', exact: true })).toHaveCount(1);
+  expect((await new AxeBuilder({ page }).setLegacyMode().analyze()).violations).toEqual([]);
+  await page.locator('#privacy-section').screenshot({ path: 'test-results/privacy-photo.png' });
+  await page.getByRole('button', { name: /pdfClean.pdf.*解析完成/ }).click();
+  await expect(page.locator('#privacy-section')).toContainText('在已读取的支持字段中未发现记录');
+  await expect(page.locator('#privacy-section')).not.toContainText('PUBLIC-123');
+  expect(await readFile(fixtures.files.privateImage!)).toEqual(before);
+});
+
+test('PDF 专项参数、逐页尺寸和隐私发现离线可用，混合对比保持不适用状态', async () => {
+  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message));
+  await page.context().setOffline(true);
+  await pick([fixtures.files.pdf!, fixtures.files.png!]); await completed(2);
+  await expect(page.locator('.detail-meta')).toContainText('PDF 文档');
+  await expect(page.locator('#file-parameters-table')).toContainText('PDF 页数');
+  await page.locator('#privacy-records-summary').click();
+  await expect(page.locator('#privacy-metadata-table')).toContainText('Public <img src=x onerror=alert(1)> Author');
+  await expect(page.locator('#privacy-section img')).toHaveCount(0);
+  await page.locator('#pdf-page-records-summary').focus(); await page.keyboard.press('Enter');
+  await expect(page.getByLabel('PDF 逐页尺寸，可滚动查看')).toContainText('1,224 pt');
+  await expect(page.getByLabel('PDF 逐页尺寸，可滚动查看')).toContainText('90°');
+  await page.setViewportSize({ width: 390, height: 780 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).setLegacyMode().analyze()).violations).toEqual([]);
+  await page.screenshot({ path: 'test-results/pdf-narrow.png', fullPage: true });
+  await page.getByRole('tab', { name: '参数对比' }).click();
+  const count = page.getByRole('row', { name: /PDF 页数/ });
+  await expect(count.getByRole('cell', { name: '2 页', exact: true })).toHaveCount(1);
+  await expect(count.getByRole('cell', { name: '不适用', exact: true })).toHaveCount(1);
+  expect(errors).toEqual([]);
+});
+
+test('加密 PDF 明确标示检查不完整，其他文件仍能正常检查', async () => {
+  await pick([fixtures.files.pdfEncrypted!, fixtures.files.pdfClean!]); await completed(2);
+  await expect(page.locator('#detail-content')).toContainText('PDF 已加密，未解密页面结构');
+  await expect(page.locator('#privacy-section')).toHaveAttribute('data-state', 'partial');
+  await expect(page.locator('#privacy-section')).not.toContainText('在已读取的支持字段中未发现记录');
+  await expect(page.locator('#pdf-page-records')).toHaveCount(0);
+  await page.getByRole('button', { name: /pdfClean.pdf.*解析完成/ }).click();
+  await expect(page.locator('#privacy-section')).toHaveAttribute('data-state', 'checked');
+  await expect(page.locator('#pdf-page-records-summary')).toBeVisible();
+});
+
+test('对比列可原生拖动，整列值对应正确，切换视图和增删文件保留排序', async () => {
+  await pick([fixtures.files.wav!, fixtures.files.png!, fixtures.files.docx!]); await completed(3);
+  await page.getByRole('tab', { name: '参数对比' }).click();
+  const names = page.locator('.comparison-file-name');
+  const source = page.getByRole('button', { name: '拖动排序：sample.wav 列', exact: true });
+  const target = page.locator('.compare-table thead th').filter({ hasText: 'sample.docx' });
+  const bounds = await target.boundingBox(); expect(bounds).not.toBeNull();
+  await source.dragTo(target, { targetPosition: { x: bounds!.width - 12, y: 12 } });
+  await expect(names).toHaveText(['sample.png', 'sample.docx', 'sample.wav']);
+  await expect(page.locator('.compare-table tbody tr').first().locator('td')).toHaveText(['sample.png', 'sample.docx', 'sample.wav']);
+  await expect(page.getByRole('row', { name: /识别的文件类型/ }).getByRole('cell')).toHaveText(['png', 'docx', 'wav']);
+  await expect(page.locator('#drag-overlay')).toBeHidden();
+  await expect(page.locator('.file-select .file-name')).toHaveText(['sample.wav', 'sample.png', 'sample.docx']);
+  await page.getByRole('tab', { name: '文件详情' }).click();
+  await page.getByRole('tab', { name: '参数对比' }).click();
+  await expect(names).toHaveText(['sample.png', 'sample.docx', 'sample.wav']);
+  await pick([fixtures.files.mp4!]); await completed(4);
+  await expect(names).toHaveText(['sample.png', 'sample.docx', 'sample.wav', 'sample.mp4']);
+  await page.getByRole('button', { name: '从列表移除 sample.docx', exact: true }).click();
+  await expect(names).toHaveText(['sample.png', 'sample.wav', 'sample.mp4']);
+  await page.getByRole('button', { name: '恢复添加顺序', exact: true }).click();
+  await expect(names).toHaveText(['sample.wav', 'sample.png', 'sample.mp4']);
+  await expect(page.getByRole('button', { name: '拖动排序：sample.wav 列', exact: true })).toBeFocused();
+});
+
+test('对比列左右移动和键盘排序在窄窗口离线可用', async () => {
+  await page.context().setOffline(true);
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  await pick([fixtures.files.wav!, fixtures.files.png!, fixtures.files.docx!]); await completed(3);
+  await page.getByRole('tab', { name: '参数对比' }).click();
+  const handle = page.getByRole('button', { name: '拖动排序：sample.wav 列', exact: true });
+  await expect(page.getByRole('button', { name: '左移 sample.wav 列', exact: true })).toBeDisabled();
+  await expect(page.getByRole('button', { name: '右移 sample.docx 列', exact: true })).toBeDisabled();
+  await handle.focus(); await page.keyboard.press('Alt+ArrowRight');
+  await expect(page.locator('.comparison-file-name')).toHaveText(['sample.png', 'sample.wav', 'sample.docx']);
+  await expect(handle).toBeFocused();
+  await expect(page.locator('#live-status')).toContainText('第 2 个文件列');
+  await page.setViewportSize({ width: 390, height: 780 });
+  await page.getByRole('button', { name: '右移 sample.wav 列', exact: true }).click();
+  await expect(page.locator('.comparison-file-name')).toHaveText(['sample.png', 'sample.docx', 'sample.wav']);
+  await expect(handle).toBeFocused();
+  const viewport = await page.locator('#comparison-scroll').boundingBox();
+  const focused = await handle.boundingBox();
+  expect(focused!.x).toBeGreaterThanOrEqual(viewport!.x);
+  expect(focused!.x + focused!.width).toBeLessThanOrEqual(viewport!.x + viewport!.width);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).setLegacyMode().analyze()).violations).toEqual([]);
+  await page.screenshot({ path: 'test-results/column-order-narrow.png', fullPage: true });
+});
+
+test('多文件横向滚动后恢复添加顺序，键盘焦点保持在可视区域', async () => {
+  await pick([fixtures.files.wav!, fixtures.files.png!, fixtures.files.docx!, fixtures.files.mp3!,
+    fixtures.files.flac!, fixtures.files.jpeg!, fixtures.files.mp4!]); await completed(7);
+  await page.getByRole('tab', { name: '参数对比' }).click();
+  const original = await page.locator('.comparison-file-name').allTextContents();
+  const handle = page.getByRole('button', { name: '拖动排序：sample.wav 列', exact: true });
+  const reset = page.getByRole('button', { name: '恢复添加顺序', exact: true });
+  for (const width of [1090, 390]) {
+    await page.setViewportSize({ width, height: 780 });
+    await handle.focus(); await page.keyboard.press('Alt+ArrowRight');
+    await page.locator('#comparison-scroll').evaluate(element => { element.scrollLeft = element.scrollWidth; });
+    expect(await page.locator('#comparison-scroll').evaluate(element => element.scrollLeft)).toBeGreaterThan(100);
+    await reset.focus(); await page.keyboard.press('Enter');
+    await expect(page.locator('.comparison-file-name')).toHaveText(original);
+    await expect(handle).toBeFocused();
+    const viewport = await page.locator('#comparison-scroll').boundingBox();
+    const focused = await handle.boundingBox();
+    expect(focused!.x).toBeGreaterThanOrEqual(viewport!.x);
+    expect(focused!.x + focused!.width).toBeLessThanOrEqual(viewport!.x + viewport!.width);
+    await page.keyboard.press('Alt+ArrowRight');
+    await expect(handle).toBeFocused();
+    await reset.focus(); await page.keyboard.press('Enter');
+  }
+});
+
+test('文件列拖动到边缘自动横向滚动，Escape 取消不会改变顺序或触发文件导入', async () => {
+  await pick([fixtures.files.wav!, fixtures.files.png!, fixtures.files.docx!, fixtures.files.mp3!,
+    fixtures.files.flac!, fixtures.files.jpeg!, fixtures.files.mp4!, fixtures.files.pdf!]); await completed(8);
+  await page.getByRole('tab', { name: '参数对比' }).click();
+  const names = page.locator('.comparison-file-name'); const original = await names.allTextContents();
+  const source = page.getByRole('button', { name: '拖动排序：sample.wav 列', exact: true });
+  await source.scrollIntoViewIfNeeded();
+  const handle = await source.boundingBox(); const area = await page.locator('#comparison-scroll').boundingBox();
+  expect(handle).not.toBeNull(); expect(area).not.toBeNull();
+  await page.mouse.move(handle!.x + handle!.width / 2, handle!.y + handle!.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(handle!.x + handle!.width / 2 + 20, handle!.y + handle!.height / 2, { steps: 5 });
+  await page.mouse.move(area!.x + area!.width - 6, handle!.y + handle!.height / 2, { steps: 10 });
+  await expect.poll(() => page.locator('#comparison-scroll').evaluate(element => element.scrollLeft)).toBeGreaterThan(100);
+  await expect(page.locator('#drag-overlay')).toBeHidden();
+  await page.keyboard.press('Escape'); await page.mouse.up();
+  await expect(names).toHaveText(original);
+  await expect(page.locator('.compare-table [data-dragging]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '恢复添加顺序', exact: true })).toBeDisabled();
+  await expect(page.locator('#file-count')).toHaveText('8');
 });

@@ -1,4 +1,4 @@
-export type FileCategory = 'audio' | 'video' | 'image' | 'office' | 'other';
+export type FileCategory = 'audio' | 'video' | 'image' | 'office' | 'pdf' | 'other';
 export type FieldStatus = 'present' | 'missing' | 'not_applicable' | 'unknown' | 'error';
 
 export interface MetadataField {
@@ -40,6 +40,26 @@ export interface AnalysisResult {
   streams: MediaStream[];
   issues: AnalysisIssue[];
   rawMetadata?: Record<string, unknown>;
+  privacy?: PrivacyReport;
+  pdfPages?: PdfPage[];
+}
+
+export interface PdfPage {
+  number: number;
+  widthPt: number;
+  heightPt: number;
+  rotation: number;
+}
+
+export interface PrivacyFinding extends MetadataField {
+  kind: 'location' | 'identity' | 'device';
+}
+
+export interface PrivacyReport {
+  status: 'checked' | 'partial' | 'unavailable' | 'unsupported';
+  findings: PrivacyFinding[];
+  checkedSources: string[];
+  limitations: string[];
 }
 
 export interface AnalysisOptions {
@@ -66,4 +86,5 @@ export interface ExtractedMetadata {
   streams?: MediaStream[];
   rawMetadata?: Record<string, unknown>;
   issues?: AnalysisIssue[];
+  pdfPages?: PdfPage[];
 }

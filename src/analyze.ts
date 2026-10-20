@@ -5,6 +5,8 @@ import { extractExif } from './exif.js';
 import { field } from './fields.js';
 import { extractMedia } from './media.js';
 import { extractOffice } from './office.js';
+import { extractPdf } from './pdf.js';
+import { inspectPrivacy } from './privacy.js';
 import { ToolError } from './tools.js';
 import { validateTimeout } from './options.js';
 import type { AnalysisOptions, AnalysisResult } from './types.js';
@@ -28,6 +30,7 @@ export async function analyzeFile(input: string, options: AnalysisOptions = {}):
     result.status = 'error';
     result.issues.push({ code: code === 'ENOENT' ? 'FILE_NOT_FOUND' : code === 'EACCES' ? 'FILE_ACCESS_DENIED' : code ?? 'FILE_ERROR',
       message: code === 'ENOENT' ? '文件不存在。' : code === 'EACCES' ? '没有权限读取文件。' : (error as Error).message });
+    result.privacy = { status: 'unavailable', findings: [], checkedSources: [], limitations: ['文件未能读取，隐私元数据检查未完成。'] };
     return result;
   }
   result.fields.push(
@@ -59,6 +62,7 @@ export async function analyzeFile(input: string, options: AnalysisOptions = {}):
   if (result.category === 'other') {
     result.fields.push(field('file.analysisLevel', '解析范围', '基础文件信息', 'analyzer', undefined,
       '暂未支持此格式的专属参数；文件类型也可能尚未识别。'));
+    result.privacy = inspectPrivacy(result);
     return result;
   }
   try {
@@ -66,10 +70,13 @@ export async function analyzeFile(input: string, options: AnalysisOptions = {}):
       ? await extractMedia(path, options)
       : result.category === 'office'
         ? await extractOffice(path, result.detectedType.ext!, options)
+        : result.category === 'pdf'
+          ? await extractPdf(path, options)
         : await extractExif(path, 'image', options);
     result.fields.push(...extracted.fields);
     result.streams = extracted.streams ?? [];
     result.rawMetadata = extracted.rawMetadata;
+    if (extracted.pdfPages) result.pdfPages = extracted.pdfPages;
     result.issues.push(...extracted.issues ?? []);
     if (extracted.issues?.length) result.status = 'partial';
     // MP4/OGG are containers: an audio-only file should not become video just because of its suffix.
@@ -88,6 +95,7 @@ export async function analyzeFile(input: string, options: AnalysisOptions = {}):
     result.fields.push(field('analysis.details', '专属参数', null, known ? error.tool : 'analyzer', undefined,
       (error as Error).message, 'error'));
   }
+  result.privacy = inspectPrivacy(result);
   return result;
 }
 

@@ -1,6 +1,7 @@
 import type { DesktopBridge, DesktopFile, DesktopEvent } from '../desktop/contracts.js';
 import type { AnalysisResult, MediaStream, MetadataField, SpectrogramResult } from '../types.js';
-import { buildComparison, categoryLabel, formatField, stateLabel, type FileEntry } from './model.js';
+import { buildComparison, categoryLabel, comparisonEntries, reorderComparisonColumns, formatBytes, formatField, stateLabel, type FileEntry } from './model.js';
+import { parameterExplanation, pcmEstimate, positiveField, printDimensions } from './guidance.js';
 
 declare global { interface Window { fileAnalyzer?: DesktopBridge } }
 
@@ -8,6 +9,8 @@ const bridge = window.fileAnalyzer;
 const entries: FileEntry[] = [];
 let activeId: string | undefined;
 let view: 'detail' | 'compare' = 'detail';
+let comparisonOrder: string[] = [];
+let columnDrag: { id: string; clientX: number; clientY: number; frame: number } | undefined;
 let picking = false;
 const removing = new Set<string>();
 interface SpectrogramState {
@@ -23,6 +26,7 @@ interface SpectrogramJob {
   cancelRequested: boolean;
 }
 const spectrograms = new Map<string, SpectrogramState>();
+const printSettings = new Map<string, { dpi: string; calculated: boolean }>();
 let spectrogramJob: SpectrogramJob | undefined;
 let renderedDetail: {
   id?: string; state?: FileEntry['state']; result?: AnalysisResult; message?: string; picking: boolean;
@@ -101,9 +105,10 @@ async function removeFiles(ids: string[]): Promise<void> {
   try {
     await bridge.removeFiles(ids);
     const removed = new Set(ids);
+    comparisonOrder = comparisonOrder.filter(id => !removed.has(id));
     const previousIndex = entries.findIndex(entry => entry.id === activeId);
     for (let index = entries.length - 1; index >= 0; index--) if (removed.has(entries[index]!.id)) entries.splice(index, 1);
-    ids.forEach(id => spectrograms.delete(id));
+    ids.forEach(id => { spectrograms.delete(id); printSettings.delete(id); });
     if (!entries.some(entry => entry.id === activeId)) activeId = entries[Math.max(0, Math.min(previousIndex, entries.length - 1))]?.id;
     if (entries.length < 2) view = 'detail';
     render();
@@ -116,6 +121,7 @@ async function removeFiles(ids: string[]): Promise<void> {
 async function retry(entry: FileEntry): Promise<void> {
   if (!bridge || entry.state === 'processing' || entry.state === 'waiting') return;
   spectrograms.delete(entry.id);
+  printSettings.delete(entry.id);
   entry.state = 'waiting';
   entry.result = undefined;
   entry.message = undefined;
@@ -357,6 +363,7 @@ function parameterTable(title: string, fields: MetadataField[], id: string): HTM
   for (const field of fields) {
     const row = node('tr');
     const label = node('th', '', field.label); label.scope = 'row';
+    explainParameter(label, field.key, `${id}-help-${field.key}`);
     const value = node('td', field.status === 'present' ? 'field-value' : 'unavailable', formatField(field));
     if (field.note) value.append(node('span', 'field-note', field.note));
     const source = node('td', 'field-source', field.source);
@@ -364,6 +371,152 @@ function parameterTable(title: string, fields: MetadataField[], id: string): HTM
     body.append(row);
   }
   table.append(caption, head, body); wrapper.append(table); section.append(heading, wrapper);
+  return section;
+}
+
+function explainParameter(label: HTMLElement, key: string, id: string): void {
+  const explanation = parameterExplanation(key);
+  if (!explanation) return;
+  const disclosure = node('details', 'parameter-help');
+  disclosure.id = id;
+  const summary = node('summary', '', '参数解释');
+  summary.id = `${id}-summary`;
+  summary.setAttribute('aria-label', `${label.textContent}：参数解释`);
+  disclosure.append(summary, node('p', '', explanation));
+  label.append(disclosure);
+}
+
+function usageCalculations(entry: FileEntry): HTMLElement | undefined {
+  const result = entry.result!;
+  if (result.status === 'error') return undefined;
+  const streams = result.streams.filter(stream => stream.type === 'audio');
+  if (result.category !== 'image' && !streams.length) return undefined;
+  const section = node('section', 'usage-calculations');
+  section.setAttribute('aria-labelledby', 'usage-heading');
+  const heading = node('div', 'section-heading');
+  const title = node('h4', '', '用途计算'); title.id = 'usage-heading';
+  heading.append(title, node('span', '', '根据参数估算'));
+  section.append(heading);
+  const numbers = new Intl.NumberFormat('zh-CN', { maximumSignificantDigits: 5 });
+  if (result.category === 'image') {
+    let state = printSettings.get(entry.id);
+    if (!state) { state = { dpi: '300', calculated: true }; printSettings.set(entry.id, state); }
+    const settings = state;
+    let composing = false;
+    const form = node('form', 'usage-form'); form.noValidate = true;
+    const label = node('label', '', '目标打印 DPI'); label.htmlFor = 'print-dpi';
+    const controls = node('div', 'usage-controls');
+    const input = node('input', 'usage-input'); input.id = 'print-dpi';
+    input.type = 'text'; input.inputMode = 'decimal'; input.maxLength = 32;
+    input.value = settings.dpi;
+    input.setAttribute('aria-describedby', 'print-hint print-error');
+    const button = node('button', 'button', '计算尺寸'); button.type = 'submit';
+    controls.append(input, button);
+    const hint = node('p', 'usage-note',
+      '默认 300 DPI 是计算条件，不是文件记录值。按每英寸像素数换算，不裁切、不放大；结果不保证实际印刷质量。');
+    hint.id = 'print-hint';
+    const error = node('p', 'usage-error'); error.id = 'print-error';
+    const output = node('output', 'usage-result'); output.id = 'print-result';
+    output.htmlFor.add(input.id);
+    const formula = node('p', 'usage-note', '公式：打印尺寸（cm）= 像素尺寸 ÷ 目标 DPI × 2.54。');
+    const update = (): boolean => {
+      error.textContent = ''; input.removeAttribute('aria-invalid');
+      if (!settings.calculated) { output.textContent = '条件已更改，请计算。'; return true; }
+      const calculated = printDimensions(positiveField(result.fields, 'image.width'),
+        positiveField(result.fields, 'image.height'), settings.dpi);
+      if ('error' in calculated) {
+        output.textContent = '暂无可用的打印尺寸。';
+        error.textContent = calculated.error;
+        if (calculated.invalidDpi) input.setAttribute('aria-invalid', 'true');
+        return !calculated.invalidDpi;
+      }
+      output.textContent = `按 ${numbers.format(calculated.dpi)} DPI：宽 ${numbers.format(calculated.widthCm)} cm × 高 ${numbers.format(calculated.heightCm)} cm`;
+      return true;
+    };
+    input.addEventListener('input', () => {
+      settings.dpi = input.value; settings.calculated = false; update();
+    });
+    input.addEventListener('compositionstart', () => { composing = true; });
+    input.addEventListener('compositionend', () => { composing = false; });
+    form.addEventListener('submit', event => {
+      event.preventDefault();
+      if (composing) return;
+      settings.calculated = true;
+      if (!update()) input.focus();
+    });
+    update();
+    form.append(label, controls, hint, error, output, formula);
+    section.append(form);
+  }
+  for (const stream of streams) {
+    const block = node('div', 'usage-audio');
+    block.append(node('h5', '', `PCM 数据量估算 · 音频轨道 #${stream.index}`));
+    const estimate = pcmEstimate(stream);
+    if ('error' in estimate) block.append(node('p', 'usage-note', estimate.error));
+    else {
+      block.append(node('p', 'usage-result', `每分钟约 ${formatBytes(estimate.bytesPerMinute)}`),
+        node('p', 'usage-note', `PCM 码率：${numbers.format(estimate.bitRate)} bit/s。`));
+      if (estimate.totalBytes !== undefined) {
+        block.append(node('p', 'usage-note',
+          `按该轨道记录的 ${numbers.format(estimate.duration!)} 秒估算：${formatBytes(estimate.totalBytes)}。`));
+      } else block.append(node('p', 'usage-note', '缺少可可靠计算的轨道时长，仅显示每分钟用量；不以容器时长代替。'));
+    }
+    block.append(node('p', 'usage-note',
+      '公式：采样率 × 位深 × 声道数 × 秒数 ÷ 8。假设参数恒定且采样紧密存储，不含文件头、对齐和元数据；不是当前压缩文件大小或质量评分。'));
+    section.append(block);
+  }
+  return section;
+}
+
+function privacySection(result: AnalysisResult): HTMLElement | undefined {
+  const privacy = result.privacy;
+  if (!privacy) return undefined;
+  const section = node('section', 'privacy-section');
+  section.id = 'privacy-section'; section.dataset.state = privacy.status;
+  section.setAttribute('aria-labelledby', 'privacy-heading');
+  const heading = node('div', 'section-heading');
+  const title = node('h4', '', '隐私元数据检查'); title.id = 'privacy-heading';
+  heading.append(title, node('span', '', '本机只读检查')); section.append(heading);
+  const status = ({ checked: '已检查支持的字段', partial: '检查不完整', unavailable: '未能检查', unsupported: '未支持此格式' })[privacy.status];
+  section.append(node('p', 'privacy-status', `${status} · ${privacy.findings.length} 项可能涉及隐私的记录`));
+  if (!privacy.findings.length) section.append(node('p', 'usage-note', privacy.status === 'checked'
+    ? '在已读取的支持字段中未发现记录；这不代表文件不含隐私。'
+    : '检查范围不足，无法据此判断文件是否包含隐私信息。'));
+  else {
+    const disclosure = node('details', 'metadata-disclosure'); disclosure.id = 'privacy-records';
+    const summary = node('summary', '', `查看发现的元数据（${privacy.findings.length} 项）`); summary.id = 'privacy-records-summary';
+    disclosure.append(summary, parameterTable('可能涉及隐私的元数据', privacy.findings, 'privacy-metadata-table'));
+    section.append(disclosure);
+  }
+  if (privacy.checkedSources.length) section.append(node('p', 'usage-note', `已检查来源：${privacy.checkedSources.join('、')}。`));
+  for (const limitation of privacy.limitations) section.append(node('p', 'usage-note', limitation));
+  return section;
+}
+
+function pdfPageSection(result: AnalysisResult): HTMLElement | undefined {
+  if (result.category !== 'pdf') return undefined;
+  const section = node('section', 'pdf-page-section');
+  const heading = node('div', 'section-heading');
+  heading.append(node('h4', '', 'PDF 页面尺寸'), node('span', '', '1 pt = 1/72 inch'));
+  section.append(heading, node('p', 'usage-note', '按 MediaBox 记录宽高，已计入 UserUnit；尺寸未应用旋转，未裁切到 CropBox，不代表打印机的可打印区域。'));
+  const pages = result.pdfPages ?? [];
+  if (!pages.length) { section.append(node('p', 'usage-note', '未读取到可展示的页面尺寸，请查看解析问题。')); return section; }
+  const disclosure = node('details', 'metadata-disclosure'); disclosure.id = 'pdf-page-records';
+  const summary = node('summary', '', `查看页面尺寸（已读取 ${pages.length} 页）`); summary.id = 'pdf-page-records-summary';
+  const wrapper = node('div', 'table-scroll'); wrapper.tabIndex = 0;
+  wrapper.setAttribute('aria-label', 'PDF 逐页尺寸，可滚动查看');
+  const table = node('table'); table.append(node('caption', 'sr-only', 'PDF 逐页页面尺寸'));
+  const head = node('thead'); const header = node('tr');
+  for (const text of ['页码', '宽度', '高度', '旋转']) { const th = node('th', '', text); th.scope = 'col'; header.append(th); }
+  head.append(header);
+  const body = node('tbody'); const numbers = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
+  for (const page of pages) {
+    const row = node('tr'); const th = node('th', '', String(page.number)); th.scope = 'row'; row.append(th);
+    for (const value of [`${numbers.format(page.widthPt / 72 * 25.4)} mm（${numbers.format(page.widthPt)} pt）`,
+      `${numbers.format(page.heightPt / 72 * 25.4)} mm（${numbers.format(page.heightPt)} pt）`, `${page.rotation}°`]) row.append(node('td', 'field-value', value));
+    body.append(row);
+  }
+  table.append(head, body); wrapper.append(table); disclosure.append(summary, wrapper); section.append(disclosure);
   return section;
 }
 
@@ -378,6 +531,7 @@ function renderDetail(): void {
     next[key as keyof typeof next] === renderedDetail![key as keyof typeof next])) return;
   const sameFile = renderedDetail?.id === entry?.id;
   const locationOpen = sameFile && (document.getElementById('file-location') as HTMLDetailsElement | null)?.open;
+  const openHelp = sameFile ? Array.from(container.querySelectorAll<HTMLDetailsElement>('.parameter-help[open], .metadata-disclosure[open]')).map(item => item.id) : [];
   const offsets = sameFile ? Array.from(container.querySelectorAll<HTMLElement>('.table-scroll')).map(element =>
     ({ id: element.id, left: element.scrollLeft, top: element.scrollTop })) : [];
   renderedDetail = next;
@@ -387,7 +541,7 @@ function renderDetail(): void {
     const add = action('选择本地文件', () => { void chooseFiles(); }, 'button primary');
     add.id = 'empty-add'; add.disabled = !bridge || picking;
     empty.append(symbol, node('h3', '', '把文件拖到这里'), node('p', '', '查看文件的编码、尺寸、时长和文档属性，也可以添加多个文件进行对比。'), add,
-      node('p', 'format-list', 'AUDIO / VIDEO / IMAGE / OFFICE'));
+      node('p', 'format-list', 'AUDIO / VIDEO / IMAGE / OFFICE / PDF'));
     container.replaceChildren(empty);
     return;
   }
@@ -425,29 +579,78 @@ function renderDetail(): void {
     detail.append(notice);
   }
   if (entry.result) {
+    const privacy = privacySection(entry.result);
+    if (privacy) detail.append(privacy);
     if (spectrum) detail.append(renderSpectrogram(entry, spectrum));
     else if (entry.result.category === 'video') detail.append(node('p', 'spectrogram-unavailable', '未读取到可用音轨，无法生成频谱；仍可查看视频参数。'));
+    const calculations = usageCalculations(entry);
+    if (calculations) detail.append(calculations);
     const file = entry.result.fields.filter(field => field.key.startsWith('file.'));
     const specialized = entry.result.fields.filter(field => !field.key.startsWith('file.'));
     if (file.length) detail.append(parameterTable('基础信息', file, 'base-info-table'));
     if (specialized.length) detail.append(parameterTable('文件参数', specialized, 'file-parameters-table'));
+    const pdfPages = pdfPageSection(entry.result);
+    if (pdfPages) detail.append(pdfPages);
     for (const stream of entry.result.streams) {
       const type = ({ video: '视频轨道', audio: '音频轨道', subtitle: '字幕轨道' } as Record<string, string>)[stream.type] ?? '其他轨道';
       detail.append(parameterTable(`${type} #${stream.index}`, stream.fields, `stream-table-${stream.index}`));
     }
   }
   container.replaceChildren(detail);
+  for (const id of openHelp) {
+    const disclosure = document.getElementById(id) as HTMLDetailsElement | null;
+    if (disclosure) disclosure.open = true;
+  }
   for (const offset of offsets) {
     const element = document.getElementById(offset.id);
     if (element) { element.scrollLeft = offset.left; element.scrollTop = offset.top; }
   }
 }
 
+function finishColumnDrag(): void {
+  if (!columnDrag) return;
+  cancelAnimationFrame(columnDrag.frame);
+  columnDrag = undefined;
+  if (view === 'compare') renderComparison();
+}
+
+function moveComparisonColumn(source: string, target: string, side: 'before' | 'after'): void {
+  const ordered = comparisonEntries(entries, comparisonOrder);
+  comparisonOrder = reorderComparisonColumns(ordered.map(entry => entry.id), source, target, side);
+  if (columnDrag) { cancelAnimationFrame(columnDrag.frame); columnDrag = undefined; }
+  renderComparison();
+  const handle = document.getElementById(`column-handle-${source}`);
+  handle?.focus({ preventScroll: true });
+  handle?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  const entry = entries.find(item => item.id === source);
+  if (entry) announce(`${entry.name} 已移到第 ${comparisonOrder.indexOf(source) + 1} 个文件列，共 ${comparisonOrder.length} 列。`);
+}
+
 function renderComparison(): void {
+  // Keep native drag targets alive while background analysis updates arrive.
+  if (columnDrag && entries.some(entry => entry.id === columnDrag!.id)) return;
+  if (columnDrag) { cancelAnimationFrame(columnDrag.frame); columnDrag = undefined; }
+  const focused = document.activeElement instanceof HTMLElement ? document.activeElement.id : '';
+  const ordered = comparisonEntries(entries, comparisonOrder);
+  comparisonOrder = ordered.map(entry => entry.id);
+  const openHelp = new Set(Array.from($('compare-content').querySelectorAll<HTMLDetailsElement>('.parameter-help[open]')).map(item => item.id));
   const previousScroll = document.getElementById('comparison-scroll');
   const offset = { left: previousScroll?.scrollLeft ?? 0, top: previousScroll?.scrollTop ?? 0 };
   const detail = node('div', 'compare-detail');
   detail.append(node('h3', '', `${entries.length} 个文件的参数对比`), node('p', 'compare-description', '比较当前列表中的文件。未记录与不适用分别标注，完整参数可在文件详情中查看。'));
+  const controls = node('div', 'comparison-toolbar');
+  const hint = node('p', '', '拖动文件列的“拖动排序”调整顺序，也可点击左右箭头。键盘可用 Alt + ← / →。');
+  hint.id = 'comparison-reorder-hint';
+  const reset = action('恢复添加顺序', () => {
+    comparisonOrder = entries.map(entry => entry.id); renderComparison();
+    const handle = document.getElementById(`column-handle-${entries[0]?.id}`);
+    handle?.focus({ preventScroll: true });
+    handle?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    announce('对比列已恢复为文件添加顺序。');
+  }, 'button small');
+  reset.id = 'comparison-reset';
+  reset.disabled = ordered.every((entry, index) => entry === entries[index]);
+  controls.append(hint, reset); detail.append(controls);
   const wrapper = node('div', 'table-scroll'); wrapper.tabIndex = 0;
   wrapper.id = 'comparison-scroll';
   wrapper.setAttribute('aria-label', '文件参数对比，可横向滚动');
@@ -456,19 +659,104 @@ function renderComparison(): void {
   table.append(node('caption', 'sr-only', '当前列表的文件参数对比'));
   const head = node('thead'); const header = node('tr');
   const corner = node('th', '', '参数'); corner.scope = 'col'; header.append(corner);
-  for (const entry of entries) {
-    const cell = node('th', '', entry.name); cell.scope = 'col'; cell.append(node('span', 'field-note', stateLabel(entry.state))); header.append(cell);
+  for (const [index, entry] of ordered.entries()) {
+    const cell = node('th'); cell.scope = 'col'; cell.dataset.columnId = entry.id;
+    cell.append(node('span', 'comparison-file-name', entry.name), node('span', 'field-note', stateLabel(entry.state)));
+    const actions = node('div', 'column-actions');
+    const handle = action('↔ 拖动排序', () => { handle.focus(); }, 'button small column-handle');
+    handle.id = `column-handle-${entry.id}`;
+    handle.draggable = true;
+    handle.setAttribute('aria-label', `拖动排序：${entry.name} 列`);
+    handle.setAttribute('aria-describedby', hint.id);
+    handle.setAttribute('aria-keyshortcuts', 'Alt+ArrowLeft Alt+ArrowRight');
+    handle.addEventListener('keydown', event => {
+      if (!event.altKey || !['ArrowLeft', 'ArrowRight'].includes(event.key)) return;
+      event.preventDefault();
+      const neighbor = ordered[index + (event.key === 'ArrowLeft' ? -1 : 1)];
+      if (neighbor) moveComparisonColumn(entry.id, neighbor.id, event.key === 'ArrowLeft' ? 'before' : 'after');
+    });
+    handle.addEventListener('dragstart', event => {
+      if (!event.dataTransfer) return;
+      columnDrag = { id: entry.id, clientX: event.clientX, clientY: event.clientY, frame: 0 };
+      event.dataTransfer.setData('application/x-file-analyzer-column', entry.id);
+      event.dataTransfer.effectAllowed = 'move';
+      for (const element of table.querySelectorAll<HTMLElement>('[data-column-id]')) {
+        if (element.dataset.columnId === entry.id) element.dataset.dragging = 'true';
+      }
+      columnDrag.frame = requestAnimationFrame(scrollColumnDrag);
+      announce(`正在移动 ${entry.name} 列，拖到目标列的左侧或右侧放下，按 Escape 取消。`);
+    });
+    handle.addEventListener('dragend', finishColumnDrag);
+    const left = action('←', () => moveComparisonColumn(entry.id, ordered[index - 1]!.id, 'before'), 'button small');
+    left.id = `column-left-${entry.id}`; left.disabled = index === 0;
+    left.setAttribute('aria-label', `左移 ${entry.name} 列`);
+    const right = action('→', () => moveComparisonColumn(entry.id, ordered[index + 1]!.id, 'after'), 'button small');
+    right.id = `column-right-${entry.id}`; right.disabled = index === ordered.length - 1;
+    right.setAttribute('aria-label', `右移 ${entry.name} 列`);
+    actions.append(handle, left, right); cell.append(actions); header.append(cell);
   }
   head.append(header);
   const body = node('tbody');
-  for (const row of buildComparison(entries).rows) {
-    const tr = node('tr'); const th = node('th', '', row.label); th.scope = 'row'; tr.append(th);
-    for (const value of row.values) tr.append(node('td', 'field-value', value));
+  for (const row of buildComparison(ordered).rows) {
+    const tr = node('tr'); const th = node('th', '', row.label); th.scope = 'row';
+    explainParameter(th, row.key, `compare-help-${row.key}`);
+    const help = th.querySelector('details');
+    if (help && openHelp.has(help.id)) help.open = true;
+    tr.append(th);
+    for (const [index, value] of row.values.entries()) {
+      const cell = node('td', 'field-value', value); cell.dataset.columnId = ordered[index]!.id; tr.append(cell);
+    }
     body.append(tr);
   }
   table.append(head, body); wrapper.append(table); detail.append(wrapper);
+  const dropTarget = (x: number, y: number): { id: string; side: 'before' | 'after' } | undefined => {
+    const element = document.elementFromPoint(x, y)?.closest<HTMLElement>('[data-column-id]');
+    if (!element || !table.contains(element)) return undefined;
+    return { id: element.dataset.columnId!, side: x < element.getBoundingClientRect().left + element.offsetWidth / 2 ? 'before' : 'after' };
+  };
+  let indicatedTarget = '';
+  const indicateTarget = (x: number, y: number): void => {
+    const target = dropTarget(x, y);
+    const key = target && target.id !== columnDrag?.id ? `${target.id}:${target.side}` : '';
+    if (key === indicatedTarget) return;
+    indicatedTarget = key;
+    for (const element of table.querySelectorAll<HTMLElement>('[data-column-id]')) {
+      if (target && target.id !== columnDrag?.id && element.dataset.columnId === target.id) element.dataset.dropSide = target.side;
+      else delete element.dataset.dropSide;
+    }
+  };
+  function scrollColumnDrag(): void {
+    if (!columnDrag) return;
+    const bounds = wrapper.getBoundingClientRect();
+    const { clientX: x, clientY: y } = columnDrag;
+    if (y >= bounds.top && y <= bounds.bottom && x >= bounds.left && x <= bounds.right) {
+      const speed = x < bounds.left + 45 ? -12 : x > bounds.right - 45 ? 12 : 0;
+      wrapper.scrollLeft += speed;
+      indicateTarget(x, y);
+    }
+    columnDrag.frame = requestAnimationFrame(scrollColumnDrag);
+  }
+  wrapper.addEventListener('dragover', event => {
+    if (!columnDrag || event.dataTransfer?.types.includes('Files')) return;
+    event.preventDefault(); event.stopPropagation();
+    columnDrag.clientX = event.clientX; columnDrag.clientY = event.clientY;
+    if (event.dataTransfer) event.dataTransfer.dropEffect = 'move';
+    indicateTarget(event.clientX, event.clientY);
+  });
+  wrapper.addEventListener('dragleave', event => {
+    if (!columnDrag || (event.relatedTarget instanceof Node && wrapper.contains(event.relatedTarget))) return;
+    columnDrag.clientX = -1; columnDrag.clientY = -1; indicateTarget(-1, -1);
+  });
+  wrapper.addEventListener('drop', event => {
+    if (!columnDrag || event.dataTransfer?.types.includes('Files')) return;
+    event.preventDefault(); event.stopPropagation();
+    const target = dropTarget(event.clientX, event.clientY);
+    if (target) moveComparisonColumn(columnDrag.id, target.id, target.side);
+    else finishColumnDrag();
+  });
   $('compare-content').replaceChildren(detail);
   wrapper.scrollLeft = offset.left; wrapper.scrollTop = offset.top;
+  if (focused) document.getElementById(focused)?.focus({ preventScroll: true });
 }
 
 function render(): void {
@@ -512,18 +800,25 @@ for (const kind of ['detail', 'compare'] as const) {
 
 let dragDepth = 0;
 document.addEventListener('dragenter', event => {
-  event.preventDefault();
-  if (event.dataTransfer?.types.includes('Files')) { dragDepth++; $('drag-overlay').hidden = false; }
+  if (!event.dataTransfer?.types.includes('Files')) return;
+  event.preventDefault(); dragDepth++; $('drag-overlay').hidden = false;
 });
-document.addEventListener('dragover', event => { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = 'copy'; });
-document.addEventListener('dragleave', event => { event.preventDefault(); if (--dragDepth <= 0) { dragDepth = 0; $('drag-overlay').hidden = true; } });
+document.addEventListener('dragover', event => {
+  if (!event.dataTransfer?.types.includes('Files')) return;
+  event.preventDefault(); event.dataTransfer.dropEffect = 'copy';
+});
+document.addEventListener('dragleave', event => {
+  if (!event.dataTransfer?.types.includes('Files')) return;
+  event.preventDefault(); if (--dragDepth <= 0) { dragDepth = 0; $('drag-overlay').hidden = true; }
+});
 document.addEventListener('drop', event => {
+  if (!event.dataTransfer?.types.includes('Files')) return;
   event.preventDefault(); dragDepth = 0; $('drag-overlay').hidden = true;
   const files = Array.from(event.dataTransfer?.files ?? []);
   if (!files.length || !bridge) return;
   void bridge.importFiles(files).then(addFiles).catch(report);
 });
-window.addEventListener('blur', () => { dragDepth = 0; $('drag-overlay').hidden = true; });
+window.addEventListener('blur', () => { dragDepth = 0; $('drag-overlay').hidden = true; finishColumnDrag(); });
 window.addEventListener('keydown', event => {
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'o') { event.preventDefault(); void chooseFiles(); }
 });

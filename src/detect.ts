@@ -62,6 +62,7 @@ function category(ext: string): FileCategory {
   if (video.has(ext)) return 'video';
   if (image.has(ext)) return 'image';
   if (office.has(ext)) return 'office';
+  if (ext === 'pdf') return 'pdf';
   return 'other';
 }
 

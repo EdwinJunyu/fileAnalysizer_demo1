@@ -13,6 +13,25 @@ export interface ComparisonRow {
   values: string[];
 }
 
+/** Retain a session's column order, discard removed IDs and append newly added files. */
+export function comparisonEntries(entries: FileEntry[], order: readonly string[]): FileEntry[] {
+  const remaining = new Map(entries.map(entry => [entry.id, entry]));
+  const ordered: FileEntry[] = [];
+  for (const id of order) {
+    const entry = remaining.get(id);
+    if (entry) { ordered.push(entry); remaining.delete(id); }
+  }
+  return [...ordered, ...remaining.values()];
+}
+
+export function reorderComparisonColumns(order: readonly string[], source: string, target: string,
+  side: 'before' | 'after'): string[] {
+  if (source === target || !order.includes(source) || !order.includes(target)) return [...order];
+  const next = order.filter(id => id !== source);
+  next.splice(next.indexOf(target) + (side === 'after' ? 1 : 0), 0, source);
+  return next;
+}
+
 const numbers = new Intl.NumberFormat('zh-CN', { maximumSignificantDigits: 15 });
 const compactNumbers = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
 const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -57,7 +76,7 @@ export function formatField(field: MetadataField | undefined): string {
 }
 
 export function categoryLabel(category: FileCategory): string {
-  return ({ audio: '音频', video: '视频', image: '图片', office: 'Office 文档', other: '其他文件' })[category];
+  return ({ audio: '音频', video: '视频', image: '图片', office: 'Office 文档', pdf: 'PDF 文档', other: '其他文件' })[category];
 }
 
 export function stateLabel(state: FileEntry['state']): string {
@@ -127,6 +146,9 @@ const definitions: RowDefinition[] = [
   officeField('office.wordCount', '保存的字数（可能过时）', ['docx', 'pptx']),
   officeField('office.sheetCount', '工作表数量（含隐藏）', ['xlsx']),
   officeField('office.slideCount', '幻灯片数量', ['pptx']),
+  { key: 'pdf.pageCount', label: 'PDF 页数', categories: ['pdf'], read: result => fromResult(result, 'pdf.pageCount') },
+  { key: 'pdf.encrypted', label: 'PDF 是否加密', categories: ['pdf'], read: result => fromResult(result, 'pdf.encrypted') },
+  { key: 'pdf.version', label: 'PDF 版本', categories: ['pdf'], read: result => fromResult(result, 'pdf.version') },
 ];
 
 function isApplicable(definition: RowDefinition, result: AnalysisResult): boolean {

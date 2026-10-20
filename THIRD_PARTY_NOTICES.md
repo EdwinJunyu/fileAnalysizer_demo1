@@ -52,7 +52,7 @@ Electron includes Chromium, Node.js and other software. Its distribution's
 `LICENSE` and `LICENSES.chromium.html` remain in the application package.
 Electron is MIT licensed and Chromium/Node components retain their individual
 notices. Application production dependencies include `fast-xml-parser` (MIT),
-`file-type` (MIT), `yauzl` (MIT), and their transitive dependencies. Packaging
+`file-type` (MIT), `yauzl` (MIT), `pdf-lib` 1.17.1 (MIT), and their transitive dependencies. Packaging
 collects installed production dependency metadata and available license/notice
 files into `resources/tools/licenses/javascript/` so version-specific notices
 travel with each binary. `package-lock.json` records exact npm integrity hashes.

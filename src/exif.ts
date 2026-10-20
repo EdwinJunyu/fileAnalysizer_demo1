@@ -250,7 +250,7 @@ export function normalizeExifMetadata(tags: Tags, category: 'image' | 'office'):
   return { fields, rawMetadata: tags, issues };
 }
 
-export async function extractExif(path: string, category: 'image' | 'office', options: AnalysisOptions): Promise<ExtractedMetadata> {
+export async function readExifTags(path: string, options: AnalysisOptions): Promise<Tags> {
   const { stdout } = await runTool('exiftool', ['-charset', 'filename=UTF8', '-json', '-n', '-G1', resolve(path)], options);
   let parsed: unknown;
   try { parsed = JSON.parse(stdout); }
@@ -259,5 +259,9 @@ export async function extractExif(path: string, category: 'image' | 'office', op
       typeof parsed[0] !== 'object' || Array.isArray(parsed[0])) {
     throw new ToolError('INVALID_TOOL_OUTPUT', 'ExifTool 未返回单个文件的 JSON 元数据记录', 'exiftool');
   }
-  return normalizeExifMetadata(parsed[0] as Tags, category);
+  return parsed[0] as Tags;
+}
+
+export async function extractExif(path: string, category: 'image' | 'office', options: AnalysisOptions): Promise<ExtractedMetadata> {
+  return normalizeExifMetadata(await readExifTags(path, options), category);
 }

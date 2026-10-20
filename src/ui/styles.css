@@ -108,6 +108,29 @@ tbody th { font-weight: 500; width: 27%; }
 tr:last-child > * { border-bottom: 0; }
 .field-value { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
 .field-note { display: block; color: var(--color-muted); font: 10px/1.7 var(--font-body); margin-top: 4px; max-width: 520px; }
+.parameter-help { margin-top: 5px; font: 11px/1.7 var(--font-body); color: var(--color-muted); font-weight: normal; }
+.parameter-help summary { cursor: pointer; color: var(--color-primary); width: fit-content; }
+.parameter-help summary:hover { text-decoration: underline; }
+.parameter-help summary:active { color: var(--color-primary-hover); }
+.parameter-help p { margin-top: 6px; overflow-wrap: anywhere; }
+.usage-form,.usage-audio { padding: var(--space-md); border: 1px solid var(--color-border); border-radius: var(--radius-sm); background: var(--color-background); }
+.usage-audio + .usage-audio { margin-top: var(--space-sm); }
+.usage-audio h5 { margin: 0 0 var(--space-sm); font-size: 12px; }
+.usage-form label { display: block; margin-bottom: 6px; font-size: 12px; }
+.usage-controls { display: flex; flex-wrap: wrap; gap: var(--space-sm); align-items: center; }
+.usage-input { width: 150px; max-width: 100%; min-height: var(--component-button-height); padding: 8px 10px; border: 1px solid var(--color-border); border-radius: var(--radius-sm); color: var(--color-text); background: var(--color-surface); font: 13px var(--font-mono); }
+.usage-input:hover { border-color: var(--color-primary); }
+.usage-input[aria-invalid="true"] { border-color: var(--color-danger); }
+.usage-note { margin-top: 7px; color: var(--color-muted); font: 12px/1.8 var(--font-body); overflow-wrap: anywhere; }
+.usage-error { min-height: 1.8em; margin-top: 7px; color: var(--color-danger); font-size: 12px; }
+.usage-result { display: block; min-height: 1.8em; font: 14px/1.8 var(--font-mono); overflow-wrap: anywhere; }
+.privacy-status { font-size: 12px; font-weight: 600; }
+.privacy-section[data-state="partial"] .privacy-status,.privacy-section[data-state="unavailable"] .privacy-status { color: var(--color-warning); }
+.metadata-disclosure { margin-top: var(--space-sm); }
+.metadata-disclosure > summary { color: var(--color-primary); cursor: pointer; font-size: 12px; width: fit-content; }
+.metadata-disclosure > summary:hover { text-decoration: underline; }
+.metadata-disclosure > summary:active { color: var(--color-primary-hover); }
+.metadata-disclosure > .table-scroll { margin-top: var(--space-sm); }
 .field-source { color: var(--color-muted); font: 10px/1.6 var(--font-mono); min-width: 112px; }
 .unavailable { color: var(--color-muted); font-family: var(--font-body); }
 .notice { border: 1px solid var(--color-border); border-left: 3px solid var(--color-warning); border-radius: var(--radius-sm); background: var(--color-background); padding: 12px 14px; margin: 16px 0; font-size: 12px; overflow-wrap: anywhere; }
@@ -120,6 +143,15 @@ tr:last-child > * { border-bottom: 0; }
 .compare-detail { padding: 25px 26px 30px; }
 .compare-detail h3 { font-size: 18px; }
 .compare-description { color: var(--color-muted); font-size: 12px; margin: 7px 0 20px; }
+.comparison-toolbar { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--space-sm); margin-bottom: var(--space-sm); }
+.comparison-toolbar p { flex: 1 1 220px; color: var(--color-muted); font-size: 12px; line-height: 1.8; }
+.comparison-file-name { display: block; overflow-wrap: anywhere; }
+.column-actions { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 8px; }
+.column-actions .column-handle:not(:disabled) { cursor: grab; }
+.column-actions .column-handle:active { cursor: grabbing; }
+.compare-table [data-dragging="true"] { opacity: .5; }
+.compare-table [data-drop-side="before"] { box-shadow: inset 3px 0 var(--color-primary); }
+.compare-table [data-drop-side="after"] { box-shadow: inset -3px 0 var(--color-primary); }
 .compare-table { min-width: 500px; table-layout: fixed; }
 .compare-table th,.compare-table td { width: 170px; }
 .compare-table thead th:first-child,.compare-table tbody th { width: 160px; }

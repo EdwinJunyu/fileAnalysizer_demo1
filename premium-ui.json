@@ -3,7 +3,7 @@
   "sourceRoots": ["src/ui", "src/desktop"],
   "locale": "zh-CN",
   "canonicalMap": "DESIGN.md",
-  "requiredCapabilities": ["Scrollbar", "Select/Listbox"],
+  "requiredCapabilities": ["Scrollbar", "Select/Listbox", "Form"],
   "ownership": { "Select/Listbox": "native" },
   "requiredCommands": ["unit", "e2e", "design"],
   "commands": {

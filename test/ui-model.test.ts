@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { field } from '../src/fields.js';
 import type { AnalysisResult, FileCategory, MediaStream, MetadataField } from '../src/types.js';
-import { buildComparison, categoryLabel, firstAudioStream, firstVideoStream, formatBytes, formatField,
+import { buildComparison, categoryLabel, comparisonEntries, reorderComparisonColumns, firstAudioStream, firstVideoStream, formatBytes, formatField,
   stateLabel, type FileEntry } from '../src/ui/model.js';
 
 function result(category: FileCategory, fields: MetadataField[] = [], streams: MediaStream[] = [], ext: string = category): AnalysisResult {
@@ -22,6 +22,30 @@ function values(entries: FileEntry[], key: string): string[] {
   assert.ok(row, `Missing comparison row: ${key}`);
   return row.values;
 }
+
+test('comparison columns move before/after neighbors without changing the file list', () => {
+  const order = ['audio', 'image', 'office', 'pdf'];
+  assert.deepEqual(reorderComparisonColumns(order, 'audio', 'office', 'after'), ['image', 'office', 'audio', 'pdf']);
+  assert.deepEqual(reorderComparisonColumns(order, 'pdf', 'image', 'before'), ['audio', 'pdf', 'image', 'office']);
+  assert.deepEqual(reorderComparisonColumns(order, 'image', 'audio', 'before'), ['image', 'audio', 'office', 'pdf']);
+  assert.deepEqual(order, ['audio', 'image', 'office', 'pdf']);
+  assert.deepEqual(reorderComparisonColumns(order, 'missing', 'image', 'after'), order);
+  assert.deepEqual(reorderComparisonColumns(order, 'audio', 'missing', 'before'), order);
+  assert.deepEqual(reorderComparisonColumns(order, 'audio', 'audio', 'after'), order);
+});
+
+test('comparison order prunes removed IDs, appends new files and keeps values aligned', () => {
+  const audio = entry(result('audio', [mediaField('file.type', 'wav')]));
+  const image = entry(result('image', [mediaField('file.type', 'png')]));
+  const office = entry(result('office', [mediaField('file.type', 'docx')]));
+  const files = [audio, image, office];
+  const sorted = comparisonEntries(files, ['removed', image.id, image.id, audio.id]);
+  assert.deepEqual(sorted, [image, audio, office]);
+  assert.deepEqual(values(sorted, 'file.type'), ['png', 'wav', 'docx']);
+  assert.deepEqual(files, [audio, image, office]);
+  assert.deepEqual(comparisonEntries([office], [audio.id, image.id, office.id]), [office]);
+  assert.deepEqual(comparisonEntries([], [audio.id]), []);
+});
 
 test('field formatting preserves zero and false, and distinguishes every unavailable status', () => {
   assert.equal(formatField(undefined), '未记录');

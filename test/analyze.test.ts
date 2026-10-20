@@ -82,6 +82,23 @@ test('视频包含独立的视频和音频轨道', async () => {
   assert.equal(get(result, 'media.bitRate').source, 'ffprobe.format');
 });
 
+test('真实 MOV 的 QuickTime 作者和设备标签进入隐私报告并保留来源', async () => {
+  const path = join(fixtures.dir, 'quicktime-privacy.mov');
+  await exec(process.env.FFMPEG_PATH ?? 'ffmpeg', ['-v', 'error', '-i', fixtures.files.mov!, '-c', 'copy',
+    '-movflags', 'use_metadata_tags', '-metadata', 'com.apple.quicktime.author=Public Author',
+    '-metadata', 'com.apple.quicktime.make=Apple', '-metadata', 'com.apple.quicktime.model=iPhone 15 Pro', '-y', path]);
+  const before = await readFile(path);
+  const result = await analyzeFile(path);
+  assert.equal(result.status, 'ok', JSON.stringify(result.issues));
+  assert.equal(result.privacy!.status, 'checked');
+  for (const [tag, kind, value] of [['author', 'identity', 'Public Author'], ['make', 'device', 'Apple'],
+    ['model', 'device', 'iPhone 15 Pro']]) {
+    assert.ok(result.privacy!.findings.some(item => item.kind === kind && item.value === value &&
+      item.source === `ffprobe.format.tags.com.apple.quicktime.${tag}`), `未发现 QuickTime ${tag}`);
+  }
+  assert.deepEqual(await readFile(path), before);
+});
+
 test('G.711压扩WAV不会被误报为无损线性PCM', async () => {
   for (const codec of ['pcm_mulaw', 'pcm_alaw']) {
     const path = join(fixtures.dir, `${codec}.wav`);

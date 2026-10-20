@@ -26,6 +26,7 @@
   "dependencies": {
     "fast-xml-parser": "5.11.2",
     "file-type": "22.2.0",
+    "pdf-lib": "1.17.1",
     "yauzl": "3.4.0"
   },
   "devDependencies": {

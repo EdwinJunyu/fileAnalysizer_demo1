@@ -3,7 +3,7 @@ import { analyzeFiles } from './analyze.js';
 import type { AnalysisOptions, AnalysisResult, MetadataField } from './types.js';
 import { validateTimeout } from './options.js';
 
-const help = `File Analyzer — 阶段一离线文件参数解析
+const help = `File Analyzer — 离线文件参数与隐私元数据检查
 
 用法：npm run analyze -- [选项] <文件...>
 
@@ -31,6 +31,14 @@ function table(result: AnalysisResult): void {
     范围: `${stream.type} #${stream.index}`, 参数: item.label, 值: displayValue(item), 来源: item.source, 说明: item.note ?? '',
   })))];
   console.table(rows);
+  if (result.privacy) {
+    const report = result.privacy;
+    console.log(`隐私元数据检查：${({ checked: '已检查支持的字段', partial: '检查不完整', unavailable: '未能检查', unsupported: '未支持此格式' })[report.status]}；发现 ${report.findings.length} 项。`);
+    if (report.findings.length) console.table(report.findings.map(item => ({ 类别: item.label, 值: item.value, 来源: item.source })));
+    for (const note of report.limitations) console.log(note);
+  }
+  if (result.pdfPages?.length) console.table(result.pdfPages.map(page => ({ 页码: page.number,
+    '宽度（pt）': page.widthPt, '高度（pt）': page.heightPt, '旋转（度）': page.rotation })));
   for (const issue of result.issues) console.error(`[${issue.code}] ${issue.message}`);
 }
 
