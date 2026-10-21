@@ -43,6 +43,12 @@ payload. The payload contains Phil Harvey's ExifTool, Oliver Betz's CC0 launcher
 Strawberry Perl and other runtime libraries with their own licenses. The complete
 `exiftool_files` directory, `readme_windows.txt`, `Licenses_Strawberry_Perl.zip`,
 LICENSE files, vendored package archive and downstream patches are preserved.
+File Analyzer adds a UTF-8 active-code-page setting to the Windows launcher's
+application manifest for non-ASCII installation paths (Windows 10 1903+).
+Its executable code and other resources are retained. The original pinned npm
+archive, modification recipe and original/modified launcher SHA-256 values are
+included in `tools/licenses/`; the record is `exiftool-windows/utf8-manifest-patch.json`.
+
 The bundled Perl runtime includes Archive::Zip. See those included licenses and
 source references when redistributing; do not label the entire payload MIT.
 

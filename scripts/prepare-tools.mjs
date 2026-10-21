@@ -1,9 +1,11 @@
-import { chmod, copyFile, cp, mkdir, rename, rm, writeFile } from 'node:fs/promises';
+import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
-import { extractSourceArchive, inventory, projectRoot, sha256, sourceIdsFor, sources, targetFromArguments, verifyTools } from './packaging/tools.mjs';
+import { execute, extractSourceArchive, inventory, projectRoot, sha256, sourceIdsFor, sources, targetFromArguments, verifyTools } from './packaging/tools.mjs';
+import { enableWindowsUtf8Manifest } from './packaging/windows-exiftool.mjs';
+import { strToU8, zipSync } from 'fflate';
 
 const target = targetFromArguments();
 const taskRoot = join(projectRoot, '.tools', 'packaging');
@@ -46,6 +48,44 @@ for (const id of sourceIds) {
 }
 await copyFile(join(projectRoot, 'THIRD_PARTY_NOTICES.md'), join(output, 'licenses', 'THIRD_PARTY_NOTICES.md'));
 
+if (target.platform === 'win32') {
+  // Preserve the complete upstream runtime and notices; only the launcher's manifest is changed.
+  const payload = join(taskWork, 'exiftoolWindows');
+  await cp(join(payload, 'bin'), output, { recursive: true });
+  await mkdir(join(output, 'licenses', 'exiftool-windows'), { recursive: true });
+  for (const name of ['LICENSE', 'README.md', 'package.json']) {
+    await copyFile(join(payload, name), join(output, 'licenses', 'exiftool-windows', name));
+  }
+  await cp(join(payload, 'patches'), join(output, 'licenses', 'exiftool-windows', 'patches'), { recursive: true });
+  const launcher = join(output, 'exiftool.exe');
+  await writeFile(launcher, enableWindowsUtf8Manifest(await readFile(launcher)));
+  await writeFile(join(output, 'licenses', 'exiftool-windows', 'utf8-manifest-patch.json'), JSON.stringify({
+    modification: 'Application manifest opts the unmodified launcher code into process UTF-8 on Windows 10 1903+.',
+    tool: 'resedit@1.7.2',
+    originalSha256: await sha256(join(payload, 'bin', 'exiftool.exe')),
+    modifiedSha256: await sha256(launcher),
+    recipe: 'licenses/build-recipe/windows-exiftool.mjs',
+  }, null, 2) + '\n');
+
+  // Fail before lengthy FFmpeg compilation when Unicode paths or Archive::Zip cannot work.
+  const probe = await mkdtemp(join(taskWork, 'exiftool-check-'));
+  try {
+    const relocated = join(probe, '工具 中文');
+    await mkdir(relocated);
+    await copyFile(launcher, join(relocated, 'exiftool.exe'));
+    await cp(join(output, 'exiftool_files'), join(relocated, 'exiftool_files'), { recursive: true });
+    const document = join(relocated, '中文 素材.docx');
+    await writeFile(document, zipSync({
+      '[Content_Types].xml': strToU8('<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'),
+      'word/document.xml': strToU8('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body/></w:document>'),
+      'docProps/core.xml': strToU8('<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:creator>Unicode path author</dc:creator></cp:coreProperties>'),
+    }));
+    const { stdout } = await execute(join(relocated, 'exiftool.exe'), ['-charset', 'filename=UTF8', '-json', document], { timeout: 30_000 });
+    if (JSON.parse(stdout)[0]?.Author !== 'Unicode path author') throw new Error('ExifTool cannot read DOCX metadata through Unicode paths.');
+    console.log('Windows ExifTool Unicode runtime and input-path verification passed.');
+  } finally { await rm(probe, { recursive: true, force: true }); }
+}
+
 console.log(`Compiling native tools for ${target.platform}-${target.arch} (this can take several minutes).`);
 const { spawn } = await import('node:child_process');
 const script = join(projectRoot, 'scripts', 'packaging', 'build-native-tools.sh').replaceAll('\\', '/');
@@ -57,16 +97,7 @@ await new Promise((resolveBuild, reject) => {
   child.once('exit', (code, signal) => code === 0 ? resolveBuild() : reject(new Error(`Native tool build failed (${code ?? signal}).`)));
 });
 
-if (target.platform === 'win32') {
-  // Keep the complete payload, including DLLs, Archive::Zip, licenses and downstream patch notices.
-  const payload = join(taskWork, 'exiftoolWindows');
-  await cp(join(payload, 'bin'), output, { recursive: true });
-  await mkdir(join(output, 'licenses', 'exiftool-windows'), { recursive: true });
-  for (const name of ['LICENSE', 'README.md', 'package.json']) {
-    await copyFile(join(payload, name), join(output, 'licenses', 'exiftool-windows', name));
-  }
-  await cp(join(payload, 'patches'), join(output, 'licenses', 'exiftool-windows', 'patches'), { recursive: true });
-} else {
+if (target.platform !== 'win32') {
   await mkdir(join(output, 'exiftool_files'), { recursive: true });
   await cp(join(taskWork, 'exiftool', 'lib'), join(output, 'exiftool_files', 'lib'), { recursive: true });
   await cp(join(taskWork, 'archiveZip', 'lib'), join(output, 'exiftool_files', 'lib'), { recursive: true });

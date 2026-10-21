@@ -7,8 +7,9 @@ $ErrorActionPreference = 'Stop'
 $TaskInstaller = (Resolve-Path -LiteralPath $Installer).Path
 $TaskNode = (Resolve-Path -LiteralPath $NodeExecutable).Path
 $TaskSmokeScript = Join-Path $PSScriptRoot 'smoke-package.mjs'
-# A fresh installation path exercises spaces independently of the build directory.
-$TaskInstallDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ('File Analyzer offline ' + [guid]::NewGuid().ToString('N'))
+# Keep this script ASCII for Windows PowerShell 5.1 while testing a Chinese installation path.
+$TaskUnicodeSegment = -join ([char]0x4E2D, [char]0x6587)
+$TaskInstallDirectory = Join-Path ([System.IO.Path]::GetTempPath()) ('File Analyzer ' + $TaskUnicodeSegment + ' offline ' + [guid]::NewGuid().ToString('N'))
 
 try {
     # NSIS requires /D to be last and takes the rest of the command line as the directory.

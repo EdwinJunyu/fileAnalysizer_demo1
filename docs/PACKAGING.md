@@ -16,6 +16,9 @@ macOS 需要 Xcode Command Line Tools (`xcode-select --install`)、make 和 bash
 Windows 需要 MSYS2 UCRT64，安装 `mingw-w64-ucrt-x86_64-gcc make diffutils tar perl`，
 在保留 Node.js PATH 的 UCRT64 终端中运行工具准备步骤。GitHub Actions 已配置这些环境。
 Windows 上 MSYS2 的 Perl 仅用于编译；随应用分发的是 ExifTool 包自己的完整运行时。
+Windows 用户系统至少为 Windows 10 1903；ExifTool 启动器的进程 UTF-8 清单让中文安装路径可用。
+构建保留原始载荷归档、原有启动器代码与资源，并记录清单修改前后的散列及补丁来源。
+工具准备会先在中文目录中读取中文文件名的 DOCX 作者，失败即在 FFmpeg 编译前停止。
 仓库通过 `.gitattributes` 将 Shell 脚本固定为 LF，避免 Windows 的 CRLF 检出使 Bash 构建失败。
 固定散列的第三方许可文件保持原始字节，防止 Windows 换行转换破坏 SHA-256。
 
@@ -139,7 +142,7 @@ Linux 验证不能代替 Windows/macOS 实机结果。原生 CI 尚未运行时�
 - 修复并回归 Windows Git 换行转换引起的固定许可 SHA-256 失败。
 - 修复 MSYS2 GNU tar 把 Windows 盘符当作远程主机、反斜杠当作转义字符的问题，以真实归档提取回归验证。
 - 增加显式 Electron 运行时准备；Electron 44 的 npm 包不再自动下载运行时，构建前校验固定版本、可执行路径和 CPU 架构，避免工具编译完成后才发现缺失。
-- `npm test`：191 项核心测试通过；`npm run test:packaging`：17 项打包规则、运行时、报告及构建失败诊断测试通过。
+- `npm test`：191 项核心测试通过；`npm run test:packaging`：19 项打包规则、运行时、清单修补、报告及构建失败诊断测试通过。
 - 在 Linux 编译固定版本 FFmpeg/FFprobe 与可迁移 Perl，构建完整应用目录，
   执行真实 ASAR Worker、隔离 PATH、离线频谱、DOCX/PDF 隐私与六语言验证通过。
 - Windows 安装器及安装后验收仍须由原生 Windows 构建结果确认；这些 Linux 结果不代替 Windows 验收。

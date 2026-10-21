@@ -12,7 +12,8 @@ File Analyzer — Windows x64 完整离线版
 支持中文、英文、日文、韩文、法文和西班牙文，在窗口右上角切换。
 
 系统要求
-64 位 Windows 10 或更新版本。Windows on ARM 和 32 位 Windows 暂不提供专用安装包。
+64 位 Windows 10 1903（18362）或更新版本，包括 Windows 11。
+Windows on ARM 和 32 位 Windows 暂不提供专用安装包。
 实际所需磁盘空间高于安装包大小，安装器也需要临时解压空间。
 
 当前构建尚未配置 Windows 代码签名，Windows 可能显示未知发布者。

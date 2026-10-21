@@ -32,7 +32,7 @@ try {
       assert.ok(path.startsWith(join(relocated, 'perl') + '/'), `Perl @INC escapes the relocated runtime: ${path}`);
     }
   }
-  const sample = join(sandbox, 'packaging smoke.wav');
+  const sample = join(sandbox, 'packaging smoke 中文.wav');
   const sampleRate = 48_000;
   const pcm = Buffer.alloc(sampleRate * 2);
   for (let i = 0; i < sampleRate; i++) pcm.writeInt16LE(Math.round(12_000 * Math.sin(2 * Math.PI * 1_000 * i / sampleRate)), i * 2);
@@ -42,13 +42,13 @@ try {
   header.writeUInt32LE(sampleRate, 24); header.writeUInt32LE(sampleRate * 2, 28);
   header.writeUInt16LE(2, 32); header.writeUInt16LE(16, 34); header.write('data', 36); header.writeUInt32LE(pcm.length, 40);
   await writeFile(sample, Buffer.concat([header, pcm]));
-  const document = join(sandbox, 'packaging smoke.docx');
+  const document = join(sandbox, 'packaging smoke 中文.docx');
   await writeFile(document, zipSync({
     '[Content_Types].xml': strToU8('<?xml version="1.0"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>'),
     'word/document.xml': strToU8('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body/></w:document>'),
     'docProps/core.xml': strToU8('<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:creator>Packaging smoke author</dc:creator></cp:coreProperties>'),
   }));
-  const pdf = join(sandbox, 'packaging smoke.pdf');
+  const pdf = join(sandbox, 'packaging smoke 中文.pdf');
   const pdfDocument = await PDFDocument.create({ updateMetadata: false });
   pdfDocument.setTitle('Packaging PDF structure');
   pdfDocument.setAuthor('Packaging PDF author');
@@ -62,7 +62,7 @@ try {
   }));
   await writeFile(pdf, await pdfDocument.save());
   const suffix = target.platform === 'win32' ? '.exe' : '';
-  const exif = await execute(join(relocated, 'exiftool' + suffix), ['-json', document], { timeout: 30_000 });
+  const exif = await execute(join(relocated, 'exiftool' + suffix), ['-charset', 'filename=UTF8', '-json', document], { timeout: 30_000 });
   assert.match(exif.stdout, /Packaging smoke author/);
   assert.doesNotMatch(exif.stdout, /Install Archive::Zip|Error opening file|Can't locate/);
   const decode = await execute(join(relocated, 'ffmpeg' + suffix), ['-v', 'error', '-i', sample, '-f', 'f32le', '-ac', '1', '-ar', '12000', '-t', '1', 'pipe:1'], {
@@ -111,10 +111,10 @@ try {
   const spectrogram = page.locator('.spectrogram-image');
   await expect(spectrogram).toBeVisible({ timeout: 30_000 });
   await expect.poll(() => spectrogram.evaluate(image => image.naturalWidth)).toBe(1200);
-  await page.getByRole('button', { name: /packaging smoke.docx.*解析完成/ }).click();
+  await page.getByRole('button', { name: /packaging smoke 中文\.docx.*解析完成/ }).click();
   await expect(page.locator('#detail-content')).toContainText('Packaging smoke author');
   await expect(page.locator('#privacy-section')).toHaveAttribute('data-state', 'checked');
-  await page.getByRole('button', { name: /packaging smoke.pdf.*解析完成/ }).click();
+  await page.getByRole('button', { name: /packaging smoke 中文\.pdf.*解析完成/ }).click();
   await expect(page.locator('#file-parameters-table')).toContainText('PDF 页数');
   await expect(page.locator('#privacy-section')).toHaveAttribute('data-state', 'checked');
   await page.locator('#privacy-records-summary').click();
