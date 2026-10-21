@@ -12,6 +12,12 @@ export const sources = JSON.parse(await readFile(new URL('./sources.json', impor
 export const sourceIdsFor = platform => platform === 'win32'
   ? ['ffmpeg', 'zlib', 'exiftool', 'exiftoolWindows'] : ['ffmpeg', 'zlib', 'exiftool', 'perl', 'archiveZip'];
 
+export async function extractSourceArchive(archive, directory, { platform = process.platform, cwd = projectRoot } = {}) {
+  // MSYS2 GNU tar otherwise treats the colon in C:\\... as a remote host separator.
+  await execute('tar', [...(platform === 'win32' ? ['--force-local'] : []),
+    '-xzf', archive, '--strip-components=1', '-C', directory], { cwd, timeout: 120_000 });
+}
+
 export async function sha256(path) {
   const hash = createHash('sha256');
   for await (const chunk of createReadStream(path)) hash.update(chunk);

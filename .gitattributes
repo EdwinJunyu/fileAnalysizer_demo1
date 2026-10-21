@@ -1,2 +1,4 @@
 # Bash must receive LF even when Windows checks out other text files as CRLF.
 *.sh text eol=lf
+# Preserve reviewed upstream notice bytes: their SHA-256 is checked before packaging.
+/scripts/packaging/notices/* -text

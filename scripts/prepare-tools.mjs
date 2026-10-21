@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
-import { execute, inventory, projectRoot, sha256, sourceIdsFor, sources, targetFromArguments, verifyTools } from './packaging/tools.mjs';
+import { extractSourceArchive, inventory, projectRoot, sha256, sourceIdsFor, sources, targetFromArguments, verifyTools } from './packaging/tools.mjs';
 
 const target = targetFromArguments();
 const taskRoot = join(projectRoot, '.tools', 'packaging');
@@ -36,7 +36,7 @@ for (const id of sourceIds) {
   // A clean extraction also prevents a previous build's generated files changing the next build.
   await rm(extracted, { recursive: true, force: true });
   await mkdir(extracted, { recursive: true });
-  await execute('tar', ['-xzf', path, '--strip-components=1', '-C', extracted], { timeout: 120_000 });
+  await extractSourceArchive(path, extracted, { platform: target.platform });
 }
 
 await rm(output, { recursive: true, force: true });

@@ -12,6 +12,8 @@ The application is developed and tested on Linux. Native Windows/macOS packaging
 
 本次源码拓展包含文档 512 MiB／音视频 2 GiB 上限、六语言界面、黑底带色标的频谱图，以及语言切换时保留频谱横向位置的修复。操作方式、范围备注、审阅修复与验证结果见 [更新记录](CHANGELOG.md)。
 
+Windows x64 完整离线版使用 `npm run package:offline` 统一构建，随包包含 FFprobe、FFmpeg、ExifTool 及运行文件；用户无需另装组件。构建成功后输出安装器、中文使用说明、SHA-256 校验值及实际体积报告。原生构建与安装验收方式见 [打包说明](docs/PACKAGING.md)。
+
 支持简体中文、English、日本語、한국어、Français、Español 六种界面语言，可在窗口右上角切换。
 
 ## 项目目标

@@ -2,6 +2,12 @@ name: Build complete desktop packages
 
 on:
   workflow_dispatch:
+    inputs:
+      targets:
+        description: 'Build Windows first, or include both macOS architectures'
+        type: choice
+        options: [windows, all]
+        default: windows
   pull_request:
   push:
     branches: [main]
@@ -16,16 +22,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - runner: windows-latest
-            platform: win32
-            arch: x64
-          - runner: macos-15-intel
-            platform: darwin
-            arch: x64
-          - runner: macos-15
-            platform: darwin
-            arch: arm64
+        include: ${{ fromJSON(inputs.targets == 'all' && '[{"runner":"windows-latest","platform":"win32","arch":"x64"},{"runner":"macos-15-intel","platform":"darwin","arch":"x64"},{"runner":"macos-15","platform":"darwin","arch":"arm64"}]' || '[{"runner":"windows-latest","platform":"win32","arch":"x64"}]') }}
     runs-on: ${{ matrix.runner }}
     env:
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
@@ -47,7 +44,6 @@ jobs:
           if [ "$TASK_EXPECTED_ARCH" = x64 ]; then TASK_EXPECTED_ARCH=x86_64; fi
           test "$(uname -m)" = "$TASK_EXPECTED_ARCH"
       - run: npm ci
-      - run: npm run test:packaging
       - name: Install native Windows compiler
         if: matrix.platform == 'win32'
         uses: msys2/setup-msys2@v2
@@ -61,40 +57,13 @@ jobs:
             diffutils
             tar
             perl
-      - name: Prepare complete Windows tools
+      - name: Build and verify complete offline Windows installer
         if: matrix.platform == 'win32'
         shell: msys2 {0}
-        run: npm run prepare:tools
-      - name: Prepare complete macOS tools
+        run: npm run package:offline
+      - name: Build and verify complete offline macOS image
         if: matrix.platform == 'darwin'
-        run: npm run prepare:tools
-      - run: npm run build
-      - name: Build unpacked application
-        run: node scripts/package-app.mjs --dir
-      - name: Smoke-test packaged application and bundled tools
-        run: npm run smoke:package
-      - name: Create installer
-        run: node scripts/package-app.mjs
-      - name: Install Windows package and smoke-test the installed application
-        if: matrix.platform == 'win32'
-        shell: pwsh
-        run: |
-          $TaskInstaller = Get-ChildItem release -Filter 'File-Analyzer-*-win-x64.exe' | Select-Object -First 1
-          if (-not $TaskInstaller) { throw 'Windows installer was not created.' }
-          $TaskInstallDirectory = Join-Path $env:RUNNER_TEMP 'FileAnalyzerInstalled'
-          $TaskInstall = Start-Process -FilePath $TaskInstaller.FullName -ArgumentList @('/S', "/D=$TaskInstallDirectory") -Wait -PassThru
-          if ($TaskInstall.ExitCode -ne 0) { throw "Installer exited with $($TaskInstall.ExitCode)." }
-          try {
-            $TaskExecutable = Join-Path $TaskInstallDirectory 'File Analyzer.exe'
-            if (-not (Test-Path $TaskExecutable)) { throw 'Installed application is missing.' }
-            node scripts/smoke-package.mjs "--app=$TaskExecutable"
-            if ($LASTEXITCODE -ne 0) { throw 'Installed application smoke test failed.' }
-          } finally {
-            $TaskUninstaller = Join-Path $TaskInstallDirectory 'Uninstall File Analyzer.exe'
-            if (Test-Path $TaskUninstaller) {
-              Start-Process -FilePath $TaskUninstaller -ArgumentList '/S' -Wait
-            }
-          }
+        run: npm run package:offline
       - name: Mount macOS image, copy and smoke-test the installed application
         if: matrix.platform == 'darwin'
         shell: bash
@@ -116,5 +85,8 @@ jobs:
           path: |
             release/*.exe
             release/*.dmg
+            release/SHA256SUMS
+            release/release-report.json
+            release/README.zh-CN.txt
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30

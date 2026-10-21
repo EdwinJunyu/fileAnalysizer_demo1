@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, writeFile, rm, symlink } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { inventory, nativeArchitecture, safeChild, sourceIdsFor, sources, verifyTools } from './tools.mjs';
+import { execute, extractSourceArchive, inventory, nativeArchitecture, safeChild, sourceIdsFor, sources, verifyTools } from './tools.mjs';
 import { collectRuntimeLicenses } from './licenses.mjs';
 
 async function fixture(t, platform = 'darwin') {
@@ -16,6 +16,24 @@ async function fixture(t, platform = 'darwin') {
   await writeFile(join(root, 'manifest.json'), JSON.stringify(manifest));
   return { root, manifest, target: { platform, arch: 'x64' } };
 }
+
+test('source extraction handles Windows drive separators as local archives and removes the top-level directory', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'file-analyzer-source-'));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  await mkdir(join(root, 'input', 'package'), { recursive: true });
+  await mkdir(join(root, 'output'));
+  await writeFile(join(root, 'input', 'package', 'source.txt'), 'pinned source bytes\n');
+  // On Linux, a relative colon filename reproduces GNU tar's Windows drive parsing.
+  // Windows uses its actual absolute drive path; macOS keeps native BSD tar arguments.
+  const archiveName = process.platform === 'linux' ? 'C:source.tar.gz' : 'source archive.tar.gz';
+  const archive = join(root, archiveName);
+  await execute('tar', ['-czf', process.platform === 'linux' ? archive : archiveName,
+    '-C', join(root, 'input'), 'package'], { cwd: root });
+  await extractSourceArchive(process.platform === 'linux' ? archiveName : archive, join(root, 'output'), {
+    cwd: root, platform: process.platform === 'linux' ? 'win32' : process.platform,
+  });
+  assert.equal(await readFile(join(root, 'output', 'source.txt'), 'utf8'), 'pinned source bytes\n');
+});
 
 test('packaging rejects modified and unexpected tool files before executing anything', async t => {
   const { root, target } = await fixture(t);

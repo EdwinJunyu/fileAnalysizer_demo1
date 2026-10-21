@@ -20,6 +20,7 @@
     "prepare:tools": "node scripts/prepare-tools.mjs",
     "package:dir": "npm run build && node scripts/package-app.mjs --dir",
     "package:release": "npm run build && node scripts/package-app.mjs",
+    "package:offline": "node scripts/build-offline.mjs",
     "test:packaging": "node --test scripts/packaging/*.test.mjs",
     "smoke:package": "node scripts/smoke-package.mjs"
   },

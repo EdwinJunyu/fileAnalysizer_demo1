@@ -1,6 +1,6 @@
 # 完整包与源码运行
 
-目标是一个小工具：Windows x64 提供完整 NSIS 安装器，macOS Intel / Apple Silicon 各提供 DMG；
+当前优先交付 Windows x64 完整 NSIS 安装器，macOS Intel / Apple Silicon 保留原生 DMG 构建；
 源码运行则由开发者自行安装 FFprobe、FFmpeg 和 ExifTool。不制作第二种精简二进制，
 应用也不下载、安装或更新运行时依赖。普通用户不需要 Node.js、Perl 或命令行工具。
 
@@ -8,11 +8,27 @@
 
 使用目标系统的原生机器、Node.js 24 和 `npm ci`。不做交叉编译。
 
+Windows 普通用户只需运行安装器，无需准备以下开发环境。
+首次下载约 200 MB 是优化目标，实际大小以原生完整构建的 `release-report.json` 为准，
+不为了控制体积删减解析组件、解码器或许可资料。
+
 macOS 需要 Xcode Command Line Tools (`xcode-select --install`)、make 和 bash。
 Windows 需要 MSYS2 UCRT64，安装 `mingw-w64-ucrt-x86_64-gcc make diffutils tar perl`，
 在保留 Node.js PATH 的 UCRT64 终端中运行工具准备步骤。GitHub Actions 已配置这些环境。
 Windows 上 MSYS2 的 Perl 仅用于编译；随应用分发的是 ExifTool 包自己的完整运行时。
 仓库通过 `.gitattributes` 将 Shell 脚本固定为 LF，避免 Windows 的 CRLF 检出使 Bash 构建失败。
+固定散列的第三方许可文件保持原始字节，防止 Windows 换行转换破坏 SHA-256。
+
+统一命令会顺序执行打包规则测试、工具准备、应用构建、完整目录离线测试、安装器生成，
+并在 Windows 上实际安装后重新执行离线测试。任一步失败即停止，不输出通过验证的交付报告。
+
+```sh
+npm ci
+# Windows：在已准备好的 MSYS2 UCRT64 终端中执行；macOS 使用本机终端。
+npm run package:offline
+```
+
+需要逐步诊断时也可以分别运行：
 
 ```sh
 npm ci
@@ -33,6 +49,17 @@ npm run package:release
 `File-Analyzer-0.1.0-mac-arm64.dmg`。Windows 安装到当前用户目录，不需要管理员权限；
 macOS 打开 DMG 后将 `File Analyzer.app` 拖入 Applications。
 `package:dir` 单独生成的未安装应用用于烟雾测试，必须保留整个应用目录，不能只复制 exe。
+
+统一 Windows 构建成功后还会生成：
+
+- `release/README.zh-CN.txt`：给使用者的安装、功能和卸载说明。
+- `release/SHA256SUMS`：本次安装器的实际 SHA-256，不包含本机构建路径。
+- `release/release-report.json`：安装器大小、解压大小、每个工具与运行时、许可和源码归档占用，
+  以及组件来源版本、目录测试和安装后测试状态。体积单位为十进制 MB；许可、源码是工具总大小的子项，不能重复相加。
+
+报告只在安装器生成及对应检查成功后写出；独立调用报告工具时，运行测试状态默认是
+`not-recorded`，文件完整性检查不会被描述成原生运行成功。历史基础包测量见
+[Windows 体积报告](WINDOWS_PACKAGE_SIZE.md)，其中的测量专用 EXE 不属于本次完整离线安装器。
 
 当前产物未配置 Windows 代码签名或 Apple 签名/公证。系统可能提示未知开发者，
 macOS Gatekeeper 可能阻止首次打开；这仍是供验证的构建产物。
@@ -78,18 +105,21 @@ FFmpeg 使用 LGPL 配置：关闭 GPL/nonfree/version3、外部库自动探测�
 
 ## CI 与验证范围
 
-`.github/workflows/package.yml` 为 Windows x64、macOS Intel / Apple Silicon 分别原生构建。
+`.github/workflows/package.yml` 在推送主分支和 PR 时优先原生构建 Windows x64。
+也可在 Actions 中选择该工作流 → Run workflow，默认 `targets: windows`；
+将 `targets` 改为 `all` 才同时构建 macOS Intel / Apple Silicon。
 runner 标签与 Node/宿主架构均检查，避免产物名称和真实架构不一致。
-CI 只上传待审阅安装器，不创建 tag、GitHub Release 或自动发布。
+CI 只上传待审阅安装器、使用说明、校验值及体积报告，保留 30 天，不创建 tag、GitHub Release 或自动发布。
 生成安装器后，Windows CI 会静默安装到临时目录，再验证安装后的应用；macOS CI 会
 以只读方式挂载 DMG、复制应用到新的安装目录，再启动复制后的应用验证，最后卸载镜像。
 
 `smoke:package` 校验打包后的工具、将工具复制到带空格和中文的新路径后再次执行，
 用 FFmpeg 解码测试音频，用 ExifTool 读取 DOCX 作者，随后启动真正的打包 Electron，
-检查 `app.isPackaged`、ASAR 内的 Worker，以及界面实际展示的媒体与 Office 结果，
-并在音频详情中实际生成频谱，验证 PNG 能正常显示。迁移后的 Perl `@INC` 必须指向新目录。
-还会通过界面生成真正的 1200 像素宽频谱图，并检查迁移后的 Perl `@INC` 全部位于新目录。
-测试刻意设置无效的全局工具路径，确保完整包使用随包工具。
+检查 `app.isPackaged`、ASAR 内的 Worker，以及界面实际展示的媒体、Office、PDF 结果，
+生成真正的 1200 像素宽频谱图，并检查 PDF 页数、UserUnit、旋转与作者隐私信息。
+迁移后的 Perl `@INC` 必须指向新目录。应用在离线模式和隔离 PATH 下完成检查，
+配置的全局工具路径也刻意无效，确保使用随包工具；记录外部请求及未捕获的页面异常。
+删除测试源文件后切换全部六种语言，验证已有结果仍可查看，且不会重新解析。
 
 Linux 只作为当前云环境的打包结构验证，不是面向用户的支持平台：
 
@@ -102,7 +132,16 @@ npm run smoke:package -- --development-linux
 
 Linux 验证不能代替 Windows/macOS 实机结果。原生 CI 尚未运行时，应将这点保留在交付说明中。
 
-### 本次云环境已执行的验证
+### 2026-10-21 完整离线构建改进验证
+
+- 修复并回归 Windows Git 换行转换引起的固定许可 SHA-256 失败。
+- 修复 MSYS2 GNU tar 把 Windows 盘符当作远程主机的问题，以真实冒号归档回归验证。
+- `npm test`：191 项核心测试通过；`npm run test:packaging`：14 项打包规则与报告测试通过。
+- 在 Linux 编译固定版本 FFmpeg/FFprobe 与可迁移 Perl，构建完整应用目录，
+  执行真实 ASAR Worker、隔离 PATH、离线频谱、DOCX/PDF 隐私与六语言验证通过。
+- Windows 安装器及安装后验收仍须由原生 Windows 构建结果确认；这些 Linux 结果不代替 Windows 验收。
+
+### 早期云环境验证记录
 
 - 类型检查、构建、设计 token 检查和严格 UI 审计通过。
 - `npm test`：113 项单元/集成测试通过；`npm run test:e2e`：15 项真实 Electron 测试通过。
@@ -112,5 +151,5 @@ Linux 验证不能代替 Windows/macOS 实机结果。原生 CI 尚未运行时�
 - Linux 完整应用目录构建和 `smoke:package -- --development-linux` 通过，实际验证 ASAR Worker、
   随包工具优先、可迁移 Perl/Archive::Zip、Office 属性读取及界面频谱生成。
 
-本次没有执行 Windows/macOS 原生 CI，也没有生成或安装这两个系统的安装器。
-安装器交付仍需原生 CI、实机离线验收，以及维护者确定项目许可证和正式发布配置。
+以上早期记录没有包含 Windows/macOS 原生构建与安装验收。
+当前原生交付状态以本次 CI 日志及产物报告为准；正式对外发布仍需维护者确定项目许可证及签名配置。
