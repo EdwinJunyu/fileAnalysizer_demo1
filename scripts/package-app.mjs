@@ -3,8 +3,11 @@ import { join } from 'node:path';
 import { build, Platform, Arch } from 'electron-builder';
 import { inventory, projectRoot, targetFromArguments, verifyTools } from './packaging/tools.mjs';
 import { collectRuntimeLicenses } from './packaging/licenses.mjs';
+import { verifyElectronRuntime } from './packaging/electron.mjs';
 
 const target = targetFromArguments();
+const { devDependencies } = JSON.parse(await readFile(join(projectRoot, 'package.json'), 'utf8'));
+await verifyElectronRuntime(join(projectRoot, 'node_modules', 'electron'), target, devDependencies.electron);
 const tools = join(projectRoot, '.tools', 'packaging', `${target.platform}-${target.arch}`, 'tools');
 await verifyTools(tools, target);
 const temporaryNotices = await mkdtemp(join(tools, '..', 'javascript-notices-'));

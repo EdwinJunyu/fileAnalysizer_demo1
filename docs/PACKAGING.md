@@ -33,6 +33,7 @@ npm run package:offline
 ```sh
 npm ci
 npm run test:packaging
+npm run prepare:electron
 npm run prepare:tools
 npm run package:dir
 npm run smoke:package
@@ -124,6 +125,7 @@ CI 只上传待审阅安装器、使用说明、校验值及体积报告，保�
 Linux 只作为当前云环境的打包结构验证，不是面向用户的支持平台：
 
 ```sh
+npm run prepare:electron -- --development-linux
 npm run prepare:tools -- --development-linux
 npm run package:dir -- --development-linux
 # 需可用X服务器，例如DISPLAY=:99；容器root启动时仅测试命令传入--no-sandbox。
@@ -136,7 +138,8 @@ Linux 验证不能代替 Windows/macOS 实机结果。原生 CI 尚未运行时�
 
 - 修复并回归 Windows Git 换行转换引起的固定许可 SHA-256 失败。
 - 修复 MSYS2 GNU tar 把 Windows 盘符当作远程主机、反斜杠当作转义字符的问题，以真实归档提取回归验证。
-- `npm test`：191 项核心测试通过；`npm run test:packaging`：15 项打包规则、报告及构建失败诊断测试通过。
+- 增加显式 Electron 运行时准备；Electron 44 的 npm 包不再自动下载运行时，构建前校验固定版本、可执行路径和 CPU 架构，避免工具编译完成后才发现缺失。
+- `npm test`：191 项核心测试通过；`npm run test:packaging`：17 项打包规则、运行时、报告及构建失败诊断测试通过。
 - 在 Linux 编译固定版本 FFmpeg/FFprobe 与可迁移 Perl，构建完整应用目录，
   执行真实 ASAR Worker、隔离 PATH、离线频谱、DOCX/PDF 隐私与六语言验证通过。
 - Windows 安装器及安装后验收仍须由原生 Windows 构建结果确认；这些 Linux 结果不代替 Windows 验收。

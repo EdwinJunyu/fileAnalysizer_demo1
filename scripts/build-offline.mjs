@@ -44,6 +44,7 @@ const script = (name, ...arguments_) => run(process.execPath, [join(projectRoot,
 const nativeFlags = target.platform === 'linux' ? ['--development-linux'] : [];
 
 await npm('run', 'test:packaging');
+await script('prepare-electron.mjs', ...nativeFlags);
 await script('prepare-tools.mjs', ...nativeFlags);
 await npm('run', 'build');
 await script('package-app.mjs', '--dir', ...nativeFlags);

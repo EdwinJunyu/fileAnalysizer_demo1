@@ -6,7 +6,7 @@ module.exports = {
   productName: 'File Analyzer',
   artifactName: 'File-Analyzer-${version}-${os}-${arch}.${ext}',
   directories: { output: 'release' },
-  // npm ci already verifies and installs the pinned Electron distribution for this native host.
+  // prepare:electron installs and verifies the pinned native distribution before packaging.
   electronDist: path.join(__dirname, 'node_modules', 'electron', 'dist'),
   files: ['dist/src/**/*', 'dist/ui/**/*', 'package.json', 'THIRD_PARTY_NOTICES.md'],
   asar: true,

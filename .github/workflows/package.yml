@@ -44,6 +44,8 @@ jobs:
           if [ "$TASK_EXPECTED_ARCH" = x64 ]; then TASK_EXPECTED_ARCH=x86_64; fi
           test "$(uname -m)" = "$TASK_EXPECTED_ARCH"
       - run: npm ci
+      - name: Prepare pinned native Electron runtime
+        run: npm run prepare:electron
       - name: Install native Windows compiler
         if: matrix.platform == 'win32'
         uses: msys2/setup-msys2@v2

@@ -42,10 +42,13 @@ nvm list
 nvm use <指定版本号>
 
 npm ci
+npm run prepare:electron
 npm start
 ```
 
-`npm start` 会构建并启动 Electron。已经构建过时可使用 `npm run desktop`。首次安装会下载开发所需的 Electron；应用运行及解析文件无需联网。
+`npm start` 会构建并启动 Electron。已经构建过时可使用 `npm run desktop`。
+`prepare:electron` 显式下载并校验固定版本的原生 Electron 运行时；当前 Electron npm 包不会在 `npm ci` 时自动准备该文件。
+这些开发准备步骤首次需要联网，生成的应用运行及解析文件无需联网。
 
 - 点击“添加文件”或拖入一个、多个本地文件；也可使用 `Ctrl+O` / `Cmd+O`。
 - 左侧选择文件，右侧查看基础信息、专属参数和各媒体轨道。

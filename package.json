@@ -18,6 +18,7 @@
     "test:e2e": "npm run build && playwright test",
     "check:design": "node scripts/build-ui.mjs --check",
     "prepare:tools": "node scripts/prepare-tools.mjs",
+    "prepare:electron": "node scripts/prepare-electron.mjs",
     "package:dir": "npm run build && node scripts/package-app.mjs --dir",
     "package:release": "npm run build && node scripts/package-app.mjs",
     "package:offline": "node scripts/build-offline.mjs",
