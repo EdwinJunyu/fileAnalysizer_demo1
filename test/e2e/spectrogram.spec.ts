@@ -51,7 +51,7 @@ test.beforeEach(async () => {
   applicationClosed = false;
   sandboxDirectory = await mkdtemp(join(tmpdir(), 'file-analyzer-spectrum-electron-'));
   application = await _electron.launch({ executablePath,
-    args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), process.cwd()],
+    args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), `--user-data-dir=${sandboxDirectory}`, process.cwd()],
     env: { ...process.env, XDG_CONFIG_HOME: sandboxDirectory,
       FILE_ANALYZER_FFMPEG: ffmpegPath,
       ...(process.platform === 'linux' ? { XDG_CACHE_HOME: sandboxDirectory } : {}) },
@@ -95,6 +95,7 @@ async function generate(): Promise<void> {
   await expect(page.locator('#spectrogram-section')).toHaveAttribute('data-state', 'ready');
   await expect(page.locator('#spectrogram-image')).toBeVisible();
   await expect(page.locator('#spectrogram-image')).toHaveJSProperty('naturalWidth', 1200);
+  await expect(page.locator('#spectrogram-image')).toHaveJSProperty('naturalHeight', 744);
 }
 
 /** Locate the brightest horizontal band without depending on exact PNG bytes. */
@@ -185,10 +186,41 @@ test('离线生成真实双音轨频谱，原生键盘选轨及窄窗口可访�
   await expect(spectrum).toContainText(/Hz/);
   await expect(spectrum).toContainText(/强度|幅度/);
   await expect(spectrum).toContainText(/dB/);
+  await expect(spectrum.locator('.spectrogram-filename')).toHaveText(basename(video));
+  await expect(spectrum.locator('.spectrogram-track-info')).toContainText('#2');
+  await expect(spectrum.locator('.spectrogram-chart')).toHaveCSS('background-color', 'rgb(0, 0, 0)');
+  await expect(spectrum.locator('.spectrogram-frequency-tick').first()).toHaveText('0 kHz');
+  await expect(spectrum.locator('.spectrogram-frequency-tick').last()).toHaveText('24 kHz');
+  await expect(spectrum.locator('.spectrogram-frequency-tick')).toHaveCount(6);
+  await expect(spectrum.locator('.spectrogram-db-tick')).toHaveText(['0 dB', '−20 dB', '−40 dB', '−60 dB', '−80 dB', '−100 dB', '−120 dB']);
+  await expect(spectrum.locator('.spectrogram-time-tick').last()).toHaveText('0:00.6');
+  await page.locator('.spectrogram-chart').screenshot({ path: 'test-results/spectrogram-reference-style.png' });
 
   await page.setViewportSize({ width: 390, height: 780 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  const chartScroll = page.locator('#spectrogram-scroll');
+  expect(await chartScroll.evaluate(element => element.scrollWidth - element.clientWidth)).toBeGreaterThan(200);
+  await chartScroll.evaluate(element => { element.scrollLeft = 200; });
+  await expect.poll(() => chartScroll.evaluate(element => element.scrollLeft)).toBe(200);
+
+  const completedImage = await page.locator('#spectrogram-image').getAttribute('src');
+  for (const locale of ['en-US', 'ja-JP', 'ko-KR', 'fr-FR', 'es-ES', 'zh-CN']) {
+    await page.locator('#language-select').selectOption(locale);
+    await expect(page.locator('html')).toHaveAttribute('lang', locale);
+    await expect(page.locator('#language-select')).toBeEnabled();
+    await expect(page.locator('#audio-track')).toHaveValue('2');
+    await expect(page.locator('#spectrogram-image')).toHaveAttribute('src', completedImage!);
+    await expect(spectrum.locator('.spectrogram-time-tick').last()).toHaveText(
+      ['fr-FR', 'es-ES'].includes(locale) ? '0:00,6' : '0:00.6');
+    // Locale rerenders must preserve the part of the chart being inspected.
+    await expect.poll(() => chartScroll.evaluate(element => element.scrollLeft)).toBe(200);
+  }
+
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
   await expect(page.locator('#spectrogram-image')).toBeVisible();
+  await chartScroll.focus();
+  await chartScroll.press('ArrowRight');
+  await expect.poll(() => chartScroll.evaluate(element => element.scrollLeft)).toBeGreaterThan(200);
   // The app has one document; Electron cannot create axe's cross-frame helper page.
   const accessibility = await new AxeBuilder({ page }).setLegacyMode().analyze();
   expect(accessibility.violations).toEqual([]);

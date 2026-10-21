@@ -3,10 +3,11 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { validateTimeout } from './options.js';
 import { runTool } from './tools.js';
+import { fileSizeIssue } from './limits.js';
+import { SPECTRUM_STYLE } from './spectrum-style.js';
 import type { AnalysisOptions, SpectrogramResult } from './types.js';
 
-const WIDTH = 1200;
-const HEIGHT = 512;
+const { width: WIDTH, height: HEIGHT, color, minDb, maxDb } = SPECTRUM_STYLE;
 // showspectrumpic retains floating-point samples until EOF. Reject oversized
 // jobs before decoding, and impose a decoded sample limit before the filter too.
 const MAX_PCM_BYTES = 256 * 1024 * 1024;
@@ -63,9 +64,12 @@ export async function generateSpectrogram(
     throw new SpectrogramError('SPECTROGRAM_INVALID_STREAM', '请选择有效的音频轨道。');
   }
   const absolutePath = resolve(path);
-  if (!(await stat(absolutePath)).isFile()) {
+  const info = await stat(absolutePath);
+  if (!info.isFile()) {
     throw new SpectrogramError('SPECTROGRAM_INVALID_FILE', '频谱只能分析本地普通文件。');
   }
+  const sizeIssue = fileSizeIssue('audio', info.size);
+  if (sizeIssue) throw new SpectrogramError(sizeIssue.code, sizeIssue.message);
   const toolOptions = { ...options, timeoutMs };
   const probe = await runTool('ffprobe', [
     '-v', 'error', '-show_streams', '-show_format', '-of', 'json',
@@ -100,7 +104,8 @@ export async function generateSpectrogram(
       '-filter_complex_threads', '1', '-filter_complex',
       `[0:${streamIndex}]atrim=end_sample=${maxSamples + 1},` +
         'astats=metadata=0:reset=0:measure_perchannel=none:measure_overall=Number_of_samples,' +
-        `showspectrumpic=s=${WIDTH}x${HEIGHT}:legend=0:mode=combined:color=cividis:scale=log:fscale=lin:drange=120:limit=0[spectrum]`,
+        `showspectrumpic=s=${WIDTH}x${HEIGHT}:legend=0:mode=combined:color=${color}:scale=log:fscale=lin:drange=${maxDb - minDb}:limit=${maxDb},` +
+        'scale=in_range=full:in_color_matrix=bt601,format=rgb24[spectrum]',
       '-map', '[spectrum]',
       '-frames:v', '1', '-threads', '1', '-c:v', 'png', '-pix_fmt', 'rgb24',
       '-update', '1', imagePath,

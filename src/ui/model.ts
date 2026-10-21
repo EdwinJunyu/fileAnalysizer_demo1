@@ -1,5 +1,6 @@
 import type { DesktopFile } from '../desktop/contracts.js';
 import type { AnalysisResult, FileCategory, MediaStream, MetadataField } from '../types.js';
+import { getLocale, numberFormat, t, translateText } from '../i18n/index.js';
 
 export interface FileEntry extends DesktopFile {
   state: 'waiting' | 'processing' | 'done' | 'partial' | 'failed';
@@ -32,14 +33,21 @@ export function reorderComparisonColumns(order: readonly string[], source: strin
   return next;
 }
 
-const numbers = new Intl.NumberFormat('zh-CN', { maximumSignificantDigits: 15 });
-const compactNumbers = new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 });
+const numbers = { format: (value: number) => numberFormat({ maximumSignificantDigits: 15 }).format(value) };
+const compactNumbers = { format: (value: number) => numberFormat({ maximumFractionDigits: 2 }).format(value) };
 const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-const dates = new Intl.DateTimeFormat('zh-CN', {
+const dateOptions: Intl.DateTimeFormatOptions = {
   year: 'numeric', month: '2-digit', day: '2-digit',
   hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
   timeZoneName: 'shortOffset',
-});
+};
+const dateFormats = new Map<string, Intl.DateTimeFormat>();
+const dates = { format: (date: Date): string => {
+  const locale = getLocale();
+  let formatter = dateFormats.get(locale);
+  if (!formatter) { formatter = new Intl.DateTimeFormat(locale, dateOptions); dateFormats.set(locale, formatter); }
+  return formatter.format(date);
+} };
 
 const unitLabels: Readonly<Record<string, string>> = {
   pages: '页', words: '词', sheets: '张', slides: '张',
@@ -48,39 +56,40 @@ const unitLabels: Readonly<Record<string, string>> = {
 
 /** Binary display units are explicit; retain the exact byte count alongside them. */
 export function formatBytes(size: number): string {
-  if (!Number.isFinite(size) || size < 0) return '无法确定';
-  const exact = `${numbers.format(size)} byte`;
+  if (!Number.isFinite(size) || size < 0) return t('无法确定');
+  const exact = `${numbers.format(size)} ${t('byte', size)}`;
   if (size < 1024) return exact;
   const units = ['KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
   const exponent = Math.min(Math.floor(Math.log(size) / Math.log(1024)), units.length);
-  return `${compactNumbers.format(size / 1024 ** exponent)} ${units[exponent - 1]}（${exact}）`;
+  return t('{0} {1}（{2}）', compactNumbers.format(size / 1024 ** exponent), units[exponent - 1], exact);
 }
 
 /** One value formatter is shared by details and comparison; absent values never become zero. */
 export function formatField(field: MetadataField | undefined): string {
-  if (!field || field.status === 'missing') return '未记录';
-  if (field.status === 'not_applicable') return '不适用';
-  if (field.status === 'unknown') return '无法确定';
-  if (field.status === 'error') return '解析错误';
-  if (field.value === null || field.value === '') return '未记录';
-  if (typeof field.value === 'boolean') return field.value ? '是' : '否';
-  if (typeof field.value === 'number' && !Number.isFinite(field.value)) return '无法确定';
+  if (!field || field.status === 'missing') return t('未记录');
+  if (field.status === 'not_applicable') return t('不适用');
+  if (field.status === 'unknown') return t('无法确定');
+  if (field.status === 'error') return t('解析错误');
+  if (field.value === null || field.value === '') return t('未记录');
+  if (typeof field.value === 'boolean') return t(field.value ? '是' : '否');
+  if (typeof field.value === 'number' && !Number.isFinite(field.value)) return t('无法确定');
   if (field.source === 'filesystem' && ['file.createdAt', 'file.modifiedAt'].includes(field.key) &&
     typeof field.value === 'string' && /^\d{4}-\d{2}-\d{2}T.*(?:Z|[+-]\d{2}:\d{2})$/.test(field.value)) {
     const date = new Date(field.value);
-    if (Number.isFinite(date.valueOf())) return `${dates.format(date)}（${localTimeZone}）`;
+    if (Number.isFinite(date.valueOf())) return t('{0}（{1}）', dates.format(date), localTimeZone);
   }
   if (field.unit === 'byte' && typeof field.value === 'number') return formatBytes(field.value);
   const value = typeof field.value === 'number' ? numbers.format(field.value) : field.value;
-  return field.unit ? `${value} ${unitLabels[field.unit] ?? field.unit}` : value;
+  if (field.key === 'file.analysisLevel' && field.source === 'analyzer') return translateText(String(value));
+  return field.unit ? `${value} ${t(unitLabels[field.unit] ?? field.unit, field.value)}` : value;
 }
 
 export function categoryLabel(category: FileCategory): string {
-  return ({ audio: '音频', video: '视频', image: '图片', office: 'Office 文档', pdf: 'PDF 文档', other: '其他文件' })[category];
+  return t(({ audio: '音频', video: '视频', image: '图片', office: 'Office 文档', pdf: 'PDF 文档', other: '其他文件' })[category]);
 }
 
 export function stateLabel(state: FileEntry['state']): string {
-  return ({ waiting: '等待解析', processing: '解析中', done: '解析完成', partial: '部分解析', failed: '解析失败' })[state];
+  return t(({ waiting: '等待解析', processing: '解析中', done: '解析完成', partial: '部分解析', failed: '解析失败' })[state]);
 }
 
 export function firstAudioStream(result: AnalysisResult): MediaStream | undefined {
@@ -106,10 +115,10 @@ interface RowDefinition {
 }
 
 const audioField = (key: string, label: string): RowDefinition => ({
-  key, label: `${label}（首个音频轨道）`, categories: ['audio', 'video'],
+  key, get label() { return t('{0}（首个音频轨道）', t(label)); }, categories: ['audio', 'video'],
   read: result => {
     const stream = firstAudioStream(result);
-    return stream ? fromStream(stream, key) : result.streams.length ? '不适用' : '未记录';
+    return stream ? fromStream(stream, key) : t(result.streams.length ? '不适用' : '未记录');
   },
 });
 
@@ -165,12 +174,12 @@ export function buildComparison(entries: FileEntry[]): { rows: ComparisonRow[] }
   const rows = definitions.filter(definition => !definition.categories || availableResults.some(result => isApplicable(definition, result)))
     .map(definition => ({
       key: definition.key,
-      label: definition.label,
+      label: t(definition.label),
       values: entries.map(entry => {
         if (entry.state === 'waiting' || entry.state === 'processing') return stateLabel(entry.state);
-        if (entry.state === 'failed' || entry.result?.status === 'error') return '解析失败';
-        if (!entry.result) return '未记录';
-        return isApplicable(definition, entry.result) ? definition.read(entry.result) : '不适用';
+        if (entry.state === 'failed' || entry.result?.status === 'error') return t('解析失败');
+        if (!entry.result) return t('未记录');
+        return isApplicable(definition, entry.result) ? definition.read(entry.result) : t('不适用');
       }),
     }));
   return { rows };

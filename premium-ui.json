@@ -2,6 +2,7 @@
   "profile": "product-admin",
   "sourceRoots": ["src/ui", "src/desktop"],
   "locale": "zh-CN",
+  "supportedLocales": ["zh-CN", "en-US", "ja-JP", "ko-KR", "fr-FR", "es-ES"],
   "canonicalMap": "DESIGN.md",
   "requiredCapabilities": ["Scrollbar", "Select/Listbox", "Form"],
   "ownership": { "Select/Listbox": "native" },

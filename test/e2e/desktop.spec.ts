@@ -1,13 +1,14 @@
 import { test, expect, _electron, type ElectronApplication, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { createRequire } from 'node:module';
-import { copyFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { copyFile, mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { createFixtures } from '../fixtures.js';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
-import { pdfFixture, encryptedPdfFixture } from '../pdf-fixtures.js';
+import { pdfFixture, encryptedPdfFixture, writeSparsePdf } from '../pdf-fixtures.js';
 import { runTool } from '../../src/tools.js';
+import { DOCUMENT_MAX_BYTES, MEDIA_MAX_BYTES } from '../../src/limits.js';
 
 const require = createRequire(import.meta.url);
 const executablePath = require('electron') as string;
@@ -36,7 +37,7 @@ test.afterAll(async () => { await fixtures.cleanup(); });
 test.beforeEach(async () => {
   sandboxDirectory = await mkdtemp(join(tmpdir(), 'file-analyzer-electron-'));
   application = await _electron.launch({ executablePath,
-    args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), root],
+    args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), `--user-data-dir=${sandboxDirectory}`, root],
     env: { ...process.env, XDG_CONFIG_HOME: sandboxDirectory,
       FILE_ANALYZER_EXIFTOOL: process.env.FILE_ANALYZER_EXIFTOOL ?? '',
       ...(process.platform === 'linux' ? { XDG_CACHE_HOME: sandboxDirectory } : {}) },
@@ -364,6 +365,39 @@ test('加密 PDF 明确标示检查不完整，其他文件仍能正常检查', 
   await page.getByRole('button', { name: /pdfClean.pdf.*解析完成/ }).click();
   await expect(page.locator('#privacy-section')).toHaveAttribute('data-state', 'checked');
   await expect(page.locator('#pdf-page-records-summary')).toBeVisible();
+});
+
+test('超限文档和媒体显示原因及基础信息，队列仍能完成其他文件', async () => {
+  const paths: string[] = [];
+  for (const [name, header, size] of [['oversized.pdf', '%PDF-1.7\n', DOCUMENT_MAX_BYTES + 1],
+    ['oversized.wav', 'unrecognized audio\n', MEDIA_MAX_BYTES + 1]] as const) {
+    const path = join(fixtures.dir, name); const file = await open(path, 'w');
+    try { await file.write(header); await file.truncate(size); } finally { await file.close(); }
+    paths.push(path);
+  }
+  await pick([...paths, fixtures.files.png!]); await completed(3);
+  await expect(page.locator('#file-size-hint')).toContainText('文档最大 512 MiB，音视频最大 2 GiB');
+  await expect(page.locator('#detail-content')).toContainText('超过单个文件 512 MiB');
+  await expect(page.locator('#base-info-table')).toContainText('oversized.pdf');
+  await expect(page.locator('#privacy-section')).toHaveAttribute('data-state', 'unavailable');
+  await page.getByRole('button', { name: /oversized.wav.*解析失败/ }).click();
+  await expect(page.locator('#detail-content')).toContainText('超过单个文件 2 GiB');
+  await page.getByRole('button', { name: /sample.png.*解析完成/ }).click();
+  await expect(page.locator('#file-parameters-table')).toContainText('像素宽度');
+  await page.setViewportSize({ width: 390, height: 780 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  expect((await new AxeBuilder({ page }).setLegacyMode().analyze()).violations).toEqual([]);
+});
+
+test('大型 PDF 解析中可移除文件，排队文件继续解析且旧结果不复活', async () => {
+  const path = join(fixtures.dir, 'large-document.pdf'); await writeSparsePdf(path, DOCUMENT_MAX_BYTES);
+  await pick([path, fixtures.files.png!]);
+  await expect(page.locator('.file-row').filter({ hasText: 'large-document.pdf' }).locator('.file-state'))
+    .toHaveAttribute('data-state', 'processing');
+  await page.getByRole('button', { name: '从列表移除 large-document.pdf', exact: true }).click();
+  await completed(1);
+  await expect(page.locator('.file-select .file-name')).toHaveText(['sample.png']);
+  await expect(page.locator('#detail-content')).not.toContainText('large-document.pdf');
 });
 
 test('对比列可原生拖动，整列值对应正确，切换视图和增删文件保留排序', async () => {

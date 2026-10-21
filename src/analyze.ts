@@ -7,6 +7,7 @@ import { extractMedia } from './media.js';
 import { extractOffice } from './office.js';
 import { extractPdf } from './pdf.js';
 import { inspectPrivacy } from './privacy.js';
+import { fileSizeIssue } from './limits.js';
 import { ToolError } from './tools.js';
 import { validateTimeout } from './options.js';
 import type { AnalysisOptions, AnalysisResult } from './types.js';
@@ -58,6 +59,13 @@ export async function analyzeFile(input: string, options: AnalysisOptions = {}):
     !sameExtension(extension, result.detectedType.ext)) {
     result.issues.push({ code: 'EXTENSION_MISMATCH',
       message: `扩展名 .${extension} 与内容识别结果 ${result.detectedType.ext} 不同，按实际内容解析。` });
+  }
+  const sizeIssue = fileSizeIssue(result.category, info.size);
+  if (sizeIssue) {
+    result.status = 'error';
+    result.issues.push(sizeIssue);
+    result.privacy = inspectPrivacy(result);
+    return result;
   }
   if (result.category === 'other') {
     result.fields.push(field('file.analysisLevel', '解析范围', '基础文件信息', 'analyzer', undefined,

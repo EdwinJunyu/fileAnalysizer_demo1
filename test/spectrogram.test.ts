@@ -8,8 +8,29 @@ import { promisify } from 'node:util';
 import { inflateSync } from 'node:zlib';
 import { generateSpectrogram, SpectrogramError } from '../src/spectrogram.js';
 import { ToolError, toolPath } from '../src/tools.js';
+import { SPECTRUM_STYLE, spectrumColor } from '../src/spectrum-style.js';
 
 const execFileAsync = promisify(execFile);
+
+test('桌面色标与真实 FFmpeg intensity 色标在各 dB 档位一致', async () => {
+  const { width, height, color, minDb, maxDb } = SPECTRUM_STYLE;
+  const { stdout } = await execFileAsync(await toolPath('ffmpeg'), [
+    '-hide_banner', '-v', 'error', '-nostdin', '-f', 'lavfi', '-i', 'anullsrc=r=48000:cl=mono:d=0.1',
+    '-filter_complex_threads', '1', '-lavfi',
+    `showspectrumpic=s=${width}x${height}:legend=1:mode=combined:color=${color}:scale=log:fscale=lin:drange=${maxDb - minDb}:limit=${maxDb},` +
+      // Sample the built-in legend independently of the desktop gradient.
+      `crop=1:${height}:iw/2+${width / 2}+24:64,scale=in_range=full:in_color_matrix=bt601,format=rgb24`,
+    '-frames:v', '1', '-threads', '1', '-f', 'rawvideo', 'pipe:1',
+  ], { encoding: 'buffer', timeout: 30_000, maxBuffer: 1024 * 1024 });
+  assert.equal(stdout.length, height * 3);
+  for (const db of [-120, -100, -80, -60, -40, -20, 0]) {
+    const row = Math.max(0, Math.min(height - 1, height - 1 - Math.round((db - minDb) / (maxDb - minDb) * height)));
+    const expected = spectrumColor((height - 1 - row) / height);
+    const actual = [...stdout.subarray(row * 3, row * 3 + 3)];
+    for (let channel = 0; channel < 3; channel++) assert.ok(Math.abs(actual[channel]! - expected[channel]!) <= 2,
+      `${db} dB: FFmpeg ${actual}, desktop ${expected}`);
+  }
+});
 
 async function fixture(args: string[]): Promise<void> {
   await execFileAsync(await toolPath('ffmpeg'), [
@@ -79,7 +100,7 @@ test('真实多轨音视频按全局索引选择音轨，频谱峰值对应不�
       const result = await generateSpectrogram(path, streamIndex!);
       assert.equal(result.streamIndex, streamIndex);
       assert.equal(result.width, 1200);
-      assert.equal(result.height, 512);
+      assert.equal(result.height, 744);
       assert.equal(result.sampleRateHz, 48000);
       assert.equal(result.channels, 1);
       assert.ok(Math.abs(result.durationSeconds - 0.5) < 0.01, 'use track duration rather than longer video/container');

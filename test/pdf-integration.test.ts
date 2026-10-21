@@ -7,7 +7,8 @@ import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { PDFDocument, PDFName, PDFString } from 'pdf-lib';
 import { analyzeFile, analyzeFiles } from '../src/index.js';
-import { pdfFixture, encryptedPdfFixture } from './pdf-fixtures.js';
+import { pdfFixture, encryptedPdfFixture, writeSparsePdf } from './pdf-fixtures.js';
+import { DOCUMENT_MAX_BYTES } from '../src/limits.js';
 
 test('真实 PDF：按内容识别、混合页面尺寸、UserUnit 和旋转，不修改文件', async t => {
   const dir = await mkdtemp(join(tmpdir(), 'file-analyzer-pdf-'));
@@ -88,9 +89,23 @@ test('PDF 页数和大小限制显式报告，保留已检查范围', async t =>
   assert.equal(result.fields.find(item => item.key === 'pdf.pageCount')!.value, 201);
   assert.equal(result.pdfPages!.length, 200); assert.ok(result.issues.some(issue => issue.code === 'PDF_PAGE_LIMIT'));
   const large = join(dir, 'large.pdf'); const file = await open(large, 'w');
-  try { await file.write('%PDF-1.7\n'); await file.truncate(64 * 1024 * 1024 + 1); } finally { await file.close(); }
+  try { await file.write('%PDF-1.7\n'); await file.truncate(DOCUMENT_MAX_BYTES + 1); } finally { await file.close(); }
   const limited = await analyzeFile(large, { exiftoolPath: join(dir, 'missing-exiftool') });
-  assert.ok(limited.issues.some(issue => issue.code === 'PDF_SIZE_LIMIT'));
+  assert.ok(limited.issues.some(issue => issue.code === 'FILE_SIZE_LIMIT'));
+});
+
+test('512 MiB 临界大小的有效 PDF 能完成结构解析并保留作者', { timeout: 90_000 }, async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'pdf-full-size-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const path = join(dir, 'full-size.pdf'); await writeSparsePdf(path, DOCUMENT_MAX_BYTES);
+  const result = await analyzeFile(path, { exiftoolPath: join(dir, 'missing-exiftool') });
+  assert.equal(result.fields.find(item => item.key === 'file.sizeBytes')!.value, DOCUMENT_MAX_BYTES);
+  assert.equal(result.fields.find(item => item.key === 'pdf.pageCount')!.value, 1);
+  assert.deepEqual(result.pdfPages, [{ number: 1, widthPt: 612, heightPt: 792, rotation: 0 }]);
+  assert.ok(result.privacy!.findings.some(item => item.value === 'Public large PDF author'));
+  assert.equal(result.issues.length, 1, JSON.stringify(result.issues));
+  assert.equal(result.issues[0]!.tool, 'exiftool');
+  t.diagnostic(`512 MiB PDF test process peak RSS: ${process.resourceUsage().maxRSS} KiB`);
 });
 
 test('PDF OpenAction 的 JavaScript 不执行或请求网络', async t => {

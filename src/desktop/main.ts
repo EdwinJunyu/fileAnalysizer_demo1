@@ -4,6 +4,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DesktopJobs, WorkerAnalyzer } from './job-manager.js';
+import { setLocale, t } from '../i18n/index.js';
+import { LanguagePreferences } from './preferences.js';
 
 const uiURL = new URL('../../ui/index.html', import.meta.url);
 const uiDirectory = fileURLToPath(new URL('.', uiURL));
@@ -12,6 +14,7 @@ let window: BrowserWindow | null = null;
 let jobs: DesktopJobs | undefined;
 let analyzer: WorkerAnalyzer | undefined;
 const pendingCleanup = new Set<Promise<void>>();
+let preferences: LanguagePreferences;
 let quitting = false;
 let cleanupComplete = false;
 
@@ -44,11 +47,17 @@ function filePaths(value: unknown): string[] {
 }
 
 function configureIPC(): void {
+  ipcMain.handle('settings:get-locale', event => { requireWindow(event); return preferences.locale; });
+  ipcMain.handle('settings:set-locale', async (event, locale: unknown) => {
+    requireWindow(event);
+    const saved = await preferences.setLocale(locale);
+    setLocale(saved); configureMenu(); return saved;
+  });
   ipcMain.handle('files:choose', async event => {
     const source = requireWindow(event);
     const currentJobs = jobs!;
     const selection = await dialog.showOpenDialog(source, {
-      title: '添加本地文件', properties: ['openFile', 'multiSelections'],
+      title: t('添加本地文件'), properties: ['openFile', 'multiSelections'],
     });
     return selection.canceled ? [] : currentJobs.register(filePaths(selection.filePaths));
   });
@@ -126,26 +135,31 @@ function createWindow(): void {
   void activeWindow.loadFile(fileURLToPath(uiURL));
 }
 
-// Electron waits for ESM main loading to finish before ready; top-level awaiting ready deadlocks.
-void app.whenReady().then(() => {
+function configureMenu(): void {
   if (process.platform === 'darwin') {
     Menu.setApplicationMenu(Menu.buildFromTemplate([
       { label: 'File Analyzer', submenu: [
-        { role: 'hide', label: '隐藏 File Analyzer' },
-        { role: 'hideOthers', label: '隐藏其他应用' },
-        { role: 'unhide', label: '显示全部' },
-        { type: 'separator' }, { role: 'quit', label: '退出 File Analyzer' },
+        { role: 'hide', label: t('隐藏 File Analyzer') },
+        { role: 'hideOthers', label: t('隐藏其他应用') },
+        { role: 'unhide', label: t('显示全部') },
+        { type: 'separator' }, { role: 'quit', label: t('退出 File Analyzer') },
       ] },
-      { label: '编辑', submenu: [
-        { role: 'copy', label: '复制' }, { role: 'selectAll', label: '全选' },
+      { label: t('编辑'), submenu: [
+        { role: 'copy', label: t('复制') }, { role: 'selectAll', label: t('全选') },
       ] },
-      { label: '窗口', submenu: [
-        { role: 'minimize', label: '最小化' }, { role: 'close', label: '关闭窗口' },
+      { label: t('窗口'), submenu: [
+        { role: 'minimize', label: t('最小化') }, { role: 'close', label: t('关闭窗口') },
       ] },
     ]));
   } else {
     Menu.setApplicationMenu(null);
   }
+}
+
+// Electron waits for ESM main loading to finish before ready; top-level awaiting ready deadlocks.
+void app.whenReady().then(async () => {
+  preferences = await LanguagePreferences.load(join(app.getPath('userData'), 'preferences.json'));
+  setLocale(preferences.locale); configureMenu();
   const localSession = session.fromPartition(partition);
   localSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   localSession.setPermissionCheckHandler(() => false);

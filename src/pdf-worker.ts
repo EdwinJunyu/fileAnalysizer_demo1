@@ -2,10 +2,10 @@ import { parentPort, workerData } from 'node:worker_threads';
 import { open } from 'node:fs/promises';
 import { PDFDocument, PDFName, PDFNumber, EncryptedPDFError } from 'pdf-lib';
 import { field } from './fields.js';
+import { DOCUMENT_MAX_BYTES } from './limits.js';
 import type { ExtractedMetadata, MetadataField, PdfPage } from './types.js';
 
 // This reader never renders pages, runs JavaScript, resolves links, or saves a PDF.
-const MAX_BYTES = 64 * 1024 * 1024;
 const MAX_PAGES = 200;
 let warned = false;
 console.warn = () => { warned = true; }; // Do not leak PDF contents into CLI output.
@@ -15,7 +15,7 @@ try {
   try {
     const info = await file.stat();
     if (!info.isFile()) throw new Error('NOT_A_FILE');
-    if (info.size > MAX_BYTES) throw new Error('PDF_SIZE_LIMIT');
+    if (info.size > DOCUMENT_MAX_BYTES) throw new Error('PDF_SIZE_LIMIT');
     // Bound the actual read as well as stat, including files that grow during analysis.
     bytes = Buffer.alloc(info.size + 1);
     let length = 0;

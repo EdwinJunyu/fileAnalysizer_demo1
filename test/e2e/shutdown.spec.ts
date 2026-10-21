@@ -32,7 +32,7 @@ require('node:fs').writeFileSync(${JSON.stringify(pidPath)}, String(process.pid)
 setInterval(() => {}, 1000);
 `, { mode: 0o700 });
   application = await _electron.launch({ executablePath,
-    args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), process.cwd()],
+    args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), `--user-data-dir=${directory}`, process.cwd()],
     env: { ...process.env, XDG_CONFIG_HOME: directory, XDG_CACHE_HOME: directory,
       FILE_ANALYZER_FFPROBE: tool },
   });

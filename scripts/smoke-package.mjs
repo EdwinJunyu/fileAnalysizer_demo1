@@ -58,7 +58,7 @@ try {
   const configDirectory = join(sandbox, 'config');
   await mkdir(configDirectory);
   application = await _electron.launch({ executablePath,
-    args: process.platform === 'linux' ? ['--no-sandbox'] : [],
+    args: [...(process.platform === 'linux' ? ['--no-sandbox'] : []), `--user-data-dir=${configDirectory}`],
     env: { ...process.env, XDG_CONFIG_HOME: configDirectory, XDG_CACHE_HOME: configDirectory,
       FILE_ANALYZER_FFPROBE: join(sandbox, 'absent-ffprobe'),
       FILE_ANALYZER_FFMPEG: join(sandbox, 'absent-ffmpeg'),

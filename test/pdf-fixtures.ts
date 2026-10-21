@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { open } from 'node:fs/promises';
 import { PDFDocument, PDFName, PDFNumber, PDFString, degrees } from 'pdf-lib';
 
 export async function pdfFixture(author?: string, count = 2, actionUrl?: string): Promise<Uint8Array> {
@@ -16,6 +17,35 @@ export async function pdfFixture(author?: string, count = 2, actionUrl?: string)
     S: 'JavaScript', JS: PDFString.of(`fetch(${JSON.stringify(actionUrl)})`),
   }));
   return document.save();
+}
+
+/** A valid PDF with a large uncompressed stream; sparse storage avoids a large test binary. */
+export async function writeSparsePdf(path: string, size: number): Promise<void> {
+  let prefix = '%PDF-1.7\n';
+  const offsets: number[] = [];
+  for (const object of [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 5 0 R /Resources << >> >>',
+    '<< /Author (Public large PDF author) >>',
+  ]) {
+    offsets.push(Buffer.byteLength(prefix));
+    prefix += `${offsets.length} 0 obj\n${object}\nendobj\n`;
+  }
+  offsets.push(Buffer.byteLength(prefix));
+  prefix += '5 0 obj\n<< /Length 0000000000 >>\nstream\n';
+  const endStream = '\nendstream\nendobj\n';
+  const trailer = (xref: number) => `xref\n0 6\n0000000000 65535 f \n${offsets.map(offset =>
+    `${String(offset).padStart(10, '0')} 00000 n \n`).join('')}trailer\n<< /Size 6 /Root 1 0 R /Info 4 0 R >>\nstartxref\n${String(xref).padStart(10, '0')}\n%%EOF\n`;
+  const xref = size - Buffer.byteLength(trailer(0));
+  const streamBytes = xref - Buffer.byteLength(prefix) - Buffer.byteLength(endStream);
+  if (streamBytes < 0) throw new Error('PDF fixture size is too small');
+  prefix = prefix.replace('0000000000', String(streamBytes).padStart(10, '0'));
+  const file = await open(path, 'w');
+  try {
+    await file.write(prefix, 0, 'utf8');
+    await file.write(endStream + trailer(xref), xref - Buffer.byteLength(endStream), 'utf8');
+  } finally { await file.close(); }
 }
 
 // Public, generated Standard Security Handler revision-2 fixture. RC4/MD5 are

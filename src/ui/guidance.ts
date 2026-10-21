@@ -1,4 +1,5 @@
 import type { MediaStream, MetadataField } from '../types.js';
+import { getLocale, t, type Locale } from '../i18n/index.js';
 
 /** Shared by detail and comparison tables; explanations never change recorded values. */
 const explanations: Readonly<Record<string, string>> = {
@@ -39,7 +40,7 @@ const explanations: Readonly<Record<string, string>> = {
 export function parameterExplanation(key: string): string | undefined {
   // Comparison aliases refer to the same concepts as the detailed stream fields.
   const canonicalKey = key === 'media.codec' ? 'stream.codec' : key;
-  return Object.hasOwn(explanations, canonicalKey) ? explanations[canonicalKey] : undefined;
+  return Object.hasOwn(explanations, canonicalKey) ? t(explanations[canonicalKey]!) : undefined;
 }
 
 export function positiveField(fields: MetadataField[], key: string): number | undefined {
@@ -48,10 +49,11 @@ export function positiveField(fields: MetadataField[], key: string): number | un
     Number.isFinite(field.value) && field.value > 0 ? field.value : undefined;
 }
 
-export function printDimensions(width: number | undefined, height: number | undefined, dpiText: string):
+export function printDimensions(width: number | undefined, height: number | undefined, dpiText: string, inputLocale: Locale = getLocale()):
   { widthCm: number; heightCm: number; dpi: number } | { error: string; invalidDpi: boolean } {
   // Accept ordinary decimal input, not JS number literals, exponents or partially parsed text.
-  const text = dpiText.trim();
+  let text = dpiText.trim().normalize('NFKC');
+  if (['fr-FR', 'es-ES'].includes(inputLocale)) text = text.replace(',', '.');
   const dpi = /^\d+(?:\.\d+)?$/.test(text) ? Number(text) : NaN;
   if (!Number.isFinite(dpi) || dpi < 1 || dpi > 9600) {
     return { error: '请输入 1 至 9600 之间的目标 DPI，可使用小数。', invalidDpi: true };

@@ -10,34 +10,37 @@
 </head>
 <body>
   <header class="app-header">
-    <div class="brand"><span class="brand-mark" aria-hidden="true">F<span>↗︎</span></span><div><h1>File Analyzer</h1><p>文件参数查看工具</p></div></div>
-    <span class="local-label"><span aria-hidden="true">●</span> 本地解析</span>
+    <div class="brand"><span class="brand-mark" aria-hidden="true">F<span>↗︎</span></span><div><h1>File Analyzer</h1><p data-i18n="文件参数查看工具">文件参数查看工具</p></div></div>
+    <div class="header-controls"><span class="local-label"><span aria-hidden="true">●</span><span data-i18n="本地解析">本地解析</span></span>
+      <div class="language-control"><label for="language-select" data-i18n="语言">语言</label><select id="language-select" aria-label="界面语言" data-i18n-label="界面语言" disabled></select></div>
+    </div>
   </header>
   <main id="workspace">
     <div class="toolbar">
-      <div><h2>检查文件，了解规格。</h2><p>音频、视频、图片、Office 与 PDF 文档</p></div>
-      <button class="button primary" id="add-files" type="button" disabled><span aria-hidden="true">＋</span> 添加文件</button>
+      <div><h2 data-i18n="检查文件，了解规格。">检查文件，了解规格。</h2><p data-i18n="音频、视频、图片、Office 与 PDF 文档">音频、视频、图片、Office 与 PDF 文档</p></div>
+      <button class="button primary" id="add-files" type="button" disabled><span aria-hidden="true">＋</span><span data-i18n="添加文件">添加文件</span></button>
     </div>
     <div class="notice" id="app-error" role="alert" hidden></div>
     <div class="workspace-grid">
-      <aside class="file-panel" aria-label="导入的文件">
-        <div class="panel-heading"><h3>文件列表 <span id="file-count" class="count">0</span></h3><button class="button ghost small" id="clear-files" type="button" disabled>清空列表</button></div>
+      <aside class="file-panel" aria-label="导入的文件" data-i18n-label="导入的文件">
+        <div class="panel-heading"><h3><span data-i18n="文件列表">文件列表</span><span id="file-count" class="count">0</span></h3><button class="button ghost small" id="clear-files" type="button" data-i18n="清空列表" disabled>清空列表</button></div>
         <p class="list-summary" id="list-summary">添加文件后开始解析</p>
         <ul id="file-list" class="file-list"></ul>
-        <div class="list-hint" id="list-hint"><span aria-hidden="true">↳</span> 可一次添加多个文件</div>
-        <div class="sidebar-footnote">清空或移除仅影响列表<br>原文件保持不变</div>
+        <div class="list-hint" id="list-hint"><span aria-hidden="true">↳</span><span data-i18n="可一次添加多个文件">可一次添加多个文件</span></div>
+        <div class="sidebar-footnote" data-i18n="清空或移除仅影响列表，原文件保持不变。">清空或移除仅影响列表，原文件保持不变。</div>
       </aside>
-      <section class="inspection-panel" aria-label="文件检查">
-        <div class="view-bar"><div class="tabs" role="tablist" aria-label="查看方式"><button id="detail-tab" type="button" role="tab" aria-controls="detail-panel" aria-selected="true" tabindex="0" disabled>文件详情</button><button id="compare-tab" type="button" role="tab" aria-controls="compare-panel" aria-selected="false" tabindex="-1" disabled>参数对比</button></div><span class="view-hint" id="view-hint">添加文件以查看参数</span></div>
+      <section class="inspection-panel" aria-label="文件检查" data-i18n-label="文件检查">
+        <div class="view-bar"><div class="tabs" role="tablist" aria-label="查看方式" data-i18n-label="查看方式"><button id="detail-tab" type="button" role="tab" aria-controls="detail-panel" aria-selected="true" tabindex="0" data-i18n="文件详情" disabled>文件详情</button><button id="compare-tab" type="button" role="tab" aria-controls="compare-panel" aria-selected="false" tabindex="-1" data-i18n="参数对比" disabled>参数对比</button></div><span class="view-hint" id="view-hint">添加文件以查看参数</span></div>
         <section id="detail-panel" role="tabpanel" aria-labelledby="detail-tab" tabindex="0">
           <div id="detail-content"></div>
         </section>
         <section id="compare-panel" role="tabpanel" aria-labelledby="compare-tab" tabindex="0" hidden><div id="compare-content"></div></section>
       </section>
     </div>
-    <footer class="app-footer"><span>文件留在本机，参数按实际内容读取</span><span id="session-status">准备就绪</span></footer>
+    <p class="file-size-hint" id="file-size-hint"></p>
+    <footer class="app-footer"><span data-i18n="文件留在本机，参数按实际内容读取">文件留在本机，参数按实际内容读取</span><span id="session-status">准备就绪</span></footer>
   </main>
-  <div id="drag-overlay" class="drag-overlay" aria-hidden="true" hidden><div><strong>松开以添加文件</strong><span>将在本机读取文件参数</span></div></div>
+  <div id="drag-overlay" class="drag-overlay" aria-hidden="true" hidden><div><strong data-i18n="松开以添加文件">松开以添加文件</strong><span data-i18n="将在本机读取文件参数">将在本机读取文件参数</span></div></div>
   <p class="sr-only" id="live-status" role="status" aria-live="polite" aria-atomic="true"></p>
   <script type="module" src="./app.js"></script>
 </body>

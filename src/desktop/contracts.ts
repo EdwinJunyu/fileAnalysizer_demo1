@@ -1,4 +1,5 @@
 import type { AnalysisResult, SpectrogramResult } from '../types.js';
+import type { Locale } from '../i18n/index.js';
 
 export interface DesktopFile {
   id: string;
@@ -13,6 +14,8 @@ export type DesktopEvent =
 
 /** The renderer gets only local-file operations, never arbitrary IPC or Node access. */
 export interface DesktopBridge {
+  getLocale(): Promise<Locale>;
+  setLocale(locale: Locale): Promise<Locale>;
   chooseFiles(): Promise<DesktopFile[]>;
   importFiles(files: File[]): Promise<DesktopFile[]>;
   analyzeFiles(ids: string[]): Promise<void>;

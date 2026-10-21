@@ -3,6 +3,7 @@ import { field, finiteNumber } from './fields.js';
 import { readExifTags } from './exif.js';
 import { ToolError } from './tools.js';
 import { validateTimeout } from './options.js';
+import { PDF_HEAP_MB, PDF_STRUCTURE_TIMEOUT_MS } from './limits.js';
 import type { AnalysisOptions, ExtractedMetadata } from './types.js';
 
 const readers = new Set<{ cancel: () => Promise<void> }>();
@@ -18,7 +19,7 @@ function readStructure(path: string, timeout: number): Promise<ExtractedMetadata
   if (closing) return Promise.reject(new Error('PDF_READ_CANCELLED'));
   return new Promise((resolve, reject) => {
     const worker = new Worker(new URL('./pdf-worker.js', import.meta.url), {
-      workerData: { path }, resourceLimits: { maxOldGenerationSizeMb: 128 }, stdout: true, stderr: true,
+      workerData: { path }, resourceLimits: { maxOldGenerationSizeMb: PDF_HEAP_MB }, stdout: true, stderr: true,
       // The compiled parser does not need host eval, test-runner or V8 launch flags.
       execArgv: [],
     });
@@ -40,14 +41,17 @@ function readStructure(path: string, timeout: number): Promise<ExtractedMetadata
     readers.add(reader);
     const timer = setTimeout(() => { void finish(undefined, 'PDF_READ_TIMEOUT'); }, timeout);
     worker.once('message', (message: { result?: ExtractedMetadata; code?: string }) => { void finish(message.result, message.code); });
-    worker.once('error', () => { void finish(undefined, 'PDF_STRUCTURE_FAILED'); });
+    worker.once('error', error => {
+      void finish(undefined, (error as NodeJS.ErrnoException).code === 'ERR_WORKER_OUT_OF_MEMORY'
+        ? 'PDF_MEMORY_LIMIT' : 'PDF_STRUCTURE_FAILED');
+    });
     worker.once('exit', () => { if (!settled) void finish(undefined, 'PDF_STRUCTURE_FAILED'); });
   });
 }
 
 /** Structural parsing and ExifTool are independent so either can preserve useful evidence. */
 export async function extractPdf(path: string, options: AnalysisOptions): Promise<ExtractedMetadata> {
-  const timeout = validateTimeout(options.timeoutMs);
+  const timeout = validateTimeout(options.timeoutMs ?? PDF_STRUCTURE_TIMEOUT_MS);
   const extracted: ExtractedMetadata = { fields: [], issues: [], rawMetadata: {} };
   try {
     const tags = await readExifTags(path, options);
@@ -87,11 +91,12 @@ export async function extractPdf(path: string, options: AnalysisOptions): Promis
     extracted.issues!.push(...structure.issues ?? []);
     Object.assign(extracted.rawMetadata!, structure.rawMetadata);
   } catch (error) {
-    const knownCodes = ['PDF_ENCRYPTED', 'PDF_SIZE_LIMIT', 'PDF_READ_TIMEOUT', 'PDF_READ_CANCELLED', 'PDF_CHANGED'];
+    const knownCodes = ['PDF_ENCRYPTED', 'PDF_SIZE_LIMIT', 'PDF_MEMORY_LIMIT', 'PDF_READ_TIMEOUT', 'PDF_READ_CANCELLED', 'PDF_CHANGED'];
     const code = error instanceof Error && knownCodes.includes(error.message) ? error.message : 'PDF_STRUCTURE_FAILED';
     const messages: Record<string, string> = {
       PDF_ENCRYPTED: 'PDF 已加密，未解密页面结构；只能展示可读取的元数据。',
-      PDF_SIZE_LIMIT: 'PDF 超过 64 MiB，未检查页面结构；可读取的元数据仍保留。',
+      PDF_SIZE_LIMIT: 'PDF 超过 512 MiB，未检查页面结构；可读取的元数据仍保留。',
+      PDF_MEMORY_LIMIT: 'PDF 页面结构超出解析内存预算，已停止结构检查；可读取的元数据仍保留。',
       PDF_READ_TIMEOUT: 'PDF 页面结构检查超时，已停止解析；可读取的元数据仍保留。',
       PDF_READ_CANCELLED: 'PDF 页面结构检查已取消。',
       PDF_CHANGED: 'PDF 在检查期间发生变化，无法可靠检查页面结构，请重新解析。',

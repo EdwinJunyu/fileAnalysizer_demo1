@@ -14,7 +14,7 @@ test('真实 UI 构建兼容 LF 和 CRLF 的设计文件，生成相同 tokens �
   try {
     await mkdir(join(directory, 'scripts'));
     await copyFile(join(root, 'scripts', 'build-ui.mjs'), join(directory, 'scripts', 'build-ui.mjs'));
-    await cp(join(root, 'src', 'ui'), join(directory, 'src', 'ui'), { recursive: true });
+    await cp(join(root, 'src'), join(directory, 'src'), { recursive: true });
     await symlink(join(root, 'node_modules'), join(directory, 'node_modules'), 'junction');
     const design = (await readFile(join(root, 'DESIGN.md'), 'utf8')).replace(/\r\n/g, '\n');
     const build = (...args: string[]) => exec(process.execPath, ['scripts/build-ui.mjs', ...args], {
