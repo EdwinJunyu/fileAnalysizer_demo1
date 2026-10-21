@@ -4,7 +4,7 @@ import { getLocale, t, type Locale } from '../i18n/index.js';
 /** Shared by detail and comparison tables; explanations never change recorded values. */
 const explanations: Readonly<Record<string, string>> = {
   'file.type': '格式按文件内容识别，扩展名只作回退提示。容器格式与其中的音视频编码可能不同。',
-  'file.sizeBytes': '文件在磁盘中的字节数，包含压缩数据、容器和元数据。1 KiB = 1024 byte，1 MiB = 1024 KiB。',
+  'file.sizeBytes': '文件在磁盘中占用的大小，包含压缩数据、容器和元数据。显示为 MB 或 GB（十进制），1 GB = 1000 MB。',
   'file.createdAt': '文件系统记录的创建时间。复制、下载或迁移可能改变它，不能据此确定作品的创作时间。',
   'file.modifiedAt': '文件系统记录的最后修改时间，与文档内部保存的修改时间可能不同。',
   'media.duration': '容器报告的文件时长。各轨道可能有不同起点和长度，不能代替实际解码后的时长。',

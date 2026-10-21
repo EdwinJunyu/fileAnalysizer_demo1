@@ -1,6 +1,6 @@
 import type { DesktopBridge, DesktopFile, DesktopEvent } from '../desktop/contracts.js';
 import type { AnalysisResult, MediaStream, MetadataField, SpectrogramResult } from '../types.js';
-import { buildComparison, categoryLabel, comparisonEntries, reorderComparisonColumns, formatBytes, formatField, stateLabel, type FileEntry } from './model.js';
+import { buildComparison, categoryLabel, comparisonEntries, reorderComparisonColumns, formatBytes, formatBitRate, formatDuration, formatField, stateLabel, type FileEntry } from './model.js';
 import { parameterExplanation, pcmEstimate, positiveField, printDimensions } from './guidance.js';
 import { FILE_SIZE_HINT } from '../limits.js';
 import { SPECTRUM_GRADIENT, SPECTRUM_STYLE } from '../spectrum-style.js';
@@ -343,6 +343,7 @@ function renderSpectrogram(entry: FileEntry, state: SpectrogramState): HTMLEleme
   const ranges = result ? t("时间 0–{0} s；频率 0–{1} Hz，线性刻度。", plotNumbers.format(result.durationSeconds), plotNumbers.format(result.sampleRateHz / 2)) : t("横轴为时间（秒），纵轴为频率（Hz），均为线性刻度。");
   const channelNote = typeof channels === 'number' ? channels > 1 ? t("{0} 个声道合并显示。", channels) : t("单声道显示。") : t("多个声道合并显示。");
   description.textContent = t("{0}颜色表示信号强度，显示范围 −120 至 0 dBFS，暗为弱、亮为强。{1}频谱不能单独用于判断源文件是否真无损。", ranges, channelNote);
+  description.append(' ', t("完整音轨流式分析；同一时间列保留较强信号，短暂峰值可能更突出。"));
   chart.append(chartHeading, frequencyAxis, frame, legend, timeAxis);
   scroll.append(chart); figure.append(scroll, description);
   section.append(heading, controls, status);
@@ -496,10 +497,10 @@ function usageCalculations(entry: FileEntry): HTMLElement | undefined {
     if ('error' in estimate) block.append(node('p', 'usage-note', translateText(estimate.error)));
     else {
       block.append(node('p', 'usage-result', t("每分钟约 {0}", formatBytes(estimate.bytesPerMinute))),
-        node('p', 'usage-note', t("PCM 码率：{0} bit/s。", numbers.format(estimate.bitRate))));
+        node('p', 'usage-note', t("PCM 码率：{0}。", formatBitRate(estimate.bitRate))));
       if (estimate.totalBytes !== undefined) {
         block.append(node('p', 'usage-note',
-          t("按该轨道记录的 {0} 秒估算：{1}。", numbers.format(estimate.duration!), formatBytes(estimate.totalBytes))));
+          t("按该轨道记录的时长 {0} 估算：{1}。", formatDuration(estimate.duration!), formatBytes(estimate.totalBytes))));
       } else block.append(node('p', 'usage-note', t("缺少可可靠计算的轨道时长，仅显示每分钟用量；不以容器时长代替。")));
     }
     block.append(node('p', 'usage-note',

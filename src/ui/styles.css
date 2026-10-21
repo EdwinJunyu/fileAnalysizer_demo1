@@ -105,7 +105,7 @@ html:not(:lang(zh)) .view-hint { flex: 1 1 120px; }
 .spectrogram-error { margin: 0 0 12px; font-size: 12px; overflow-wrap: anywhere; }
 .spectrogram-figure { margin: 0; }
 .spectrogram-scroll { max-width: 100%; overflow-x: auto; border-radius: var(--radius-sm); background: var(--color-spectrum-background); }
-.spectrogram-chart { display: grid; grid-template-columns: 56px minmax(0,1fr) 76px; column-gap: 10px; min-width: 640px; padding: 18px 16px 12px 10px; color: var(--color-spectrum-foreground); background: var(--color-spectrum-background); }
+.spectrogram-chart { display: grid; grid-template-columns: 56px minmax(0,1fr) 76px; column-gap: 10px; min-width: 960px; padding: 18px 16px 12px 10px; color: var(--color-spectrum-foreground); background: var(--color-spectrum-background); }
 .spectrogram-chart-heading { grid-column: 2 / -1; min-width: 0; padding-bottom: 18px; }
 .spectrogram-filename { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.5; overflow-wrap: anywhere; }
 .spectrogram-track-info { margin: 6px 0 0; color: var(--color-spectrum-muted); font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }

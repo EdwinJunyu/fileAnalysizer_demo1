@@ -8,7 +8,7 @@ import { DOCUMENT_MAX_BYTES } from '../src/limits.js';
 import { writeSparsePdf } from './pdf-fixtures.js';
 
 // Shutdown seals this module instance; keep this lifecycle test in its own test process.
-test('关闭 512 MiB PDF 解析器会取消任务并回收结构线程', { timeout: 10_000 }, async t => {
+test('关闭 1 GB PDF 解析器会取消任务并回收结构线程', { timeout: 10_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'pdf-large-cancel-'));
   t.after(async () => { await shutdownPdfReaders(); await rm(dir, { recursive: true, force: true }); });
   const path = join(dir, 'cancel.pdf'); await writeSparsePdf(path, DOCUMENT_MAX_BYTES);

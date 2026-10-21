@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { test } from 'node:test';
 import { promisify } from 'node:util';
-import { runTool, toolPath, ToolError } from '../src/tools.js';
+import { runTool, streamTool, toolPath, ToolError } from '../src/tools.js';
 
 test('随包工具优先；缺少随包文件时使用配置的路径', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'file-analyzer-tools-'));
@@ -79,4 +79,47 @@ test('成功退出时仍保留标准错误诊断', async () => {
     'process.stdout.write("metadata"); process.stderr.write("parse diagnostic")'], { ffprobePath: process.execPath });
   assert.equal(output.stdout, 'metadata');
   assert.equal(output.stderr, 'parse diagnostic');
+});
+
+test('二进制流不受文本输出缓存限制，缺失工具仍返回明确错误', async () => {
+  let bytes = 0;
+  const output = await streamTool('ffmpeg', ['-e',
+    'process.stdout.write(Buffer.alloc(17 * 1024 * 1024, 255)); process.stderr.write("done");'],
+  chunk => { bytes += chunk.length; assert.ok(chunk.every(byte => byte === 255)); }, { ffmpegPath: process.execPath });
+  assert.equal(bytes, 17 * 1024 * 1024);
+  assert.equal(output.stderr, 'done');
+  await assert.rejects(streamTool('ffmpeg', [], () => {}, { ffmpegPath: join(tmpdir(), 'missing-stream-ffmpeg') }),
+    { code: 'TOOL_NOT_FOUND' });
+});
+
+test('流式工具超时和消费失败都回收真实进程，保留原始失败原因', async t => {
+  const dir = await mkdtemp(join(tmpdir(), 'stream-tool-stop-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  for (const mode of ['timeout', 'consumer'] as const) {
+    const pidFile = join(dir, mode);
+    const failure = new Error('consumer stopped');
+    await assert.rejects(streamTool('ffmpeg', ['-e',
+      `require('node:fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid)); process.stdout.write('start'); setInterval(() => {}, 1000);`],
+    () => { if (mode === 'consumer') throw failure; }, { ffmpegPath: process.execPath, timeoutMs: 1000 }),
+    error => mode === 'consumer' ? error === failure : (error as ToolError).code === 'TOOL_TIMEOUT');
+    const pid = Number(await readFile(pidFile, 'utf8'));
+    assert.throws(() => process.kill(pid, 0), { code: 'ESRCH' });
+  }
+});
+
+test('流式进程加入共享退出管理，关闭后拒绝再次启动', async () => {
+  const script = `
+    import assert from 'node:assert/strict';
+    const { streamTool, shutdownTools } = await import(${JSON.stringify(new URL('../src/tools.js', import.meta.url).href)});
+    let stop;
+    const started = new Promise(resolve => { stop = resolve; });
+    const running = streamTool('ffmpeg', ['-e', 'process.stdout.write("ready"); setInterval(() => {}, 1000);'],
+      () => stop(), { ffmpegPath: process.execPath });
+    const stopped = assert.rejects(running, { code: 'TOOL_CANCELLED' });
+    await started;
+    await shutdownTools();
+    await stopped;
+    await assert.rejects(streamTool('ffmpeg', [], () => {}, { ffmpegPath: process.execPath }), { code: 'TOOL_CANCELLED' });
+  `;
+  await promisify(execFile)(process.execPath, ['--input-type=module', '-e', script]);
 });

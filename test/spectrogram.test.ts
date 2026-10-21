@@ -39,7 +39,8 @@ async function fixture(args: string[]): Promise<void> {
 }
 
 /** Decode RGB PNG rows so the tests verify frequency placement, not just a file header. */
-function peakFrequency(imageDataUrl: string, width: number, height: number, sampleRate: number): number {
+function peakFrequency(imageDataUrl: string, width: number, height: number, sampleRate: number,
+  left = 0.25, right = 0.75): number {
   const png = Buffer.from(imageDataUrl.slice('data:image/png;base64,'.length), 'base64');
   assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
   assert.equal(png[24], 8, '8-bit PNG');
@@ -77,7 +78,7 @@ function peakFrequency(imageDataUrl: string, width: number, height: number, samp
     }
     // Exclude the first/last columns, which can contain FFT boundary effects.
     let brightness = 0;
-    for (let column = Math.floor(width / 4); column < width * 3 / 4; column++) {
+    for (let column = Math.floor(width * left); column < width * right; column++) {
       brightness += pixels[column * 3]! * 0.2126 + pixels[column * 3 + 1]! * 0.7152 + pixels[column * 3 + 2]! * 0.0722;
     }
     if (brightness > strongest) { strongest = brightness; peak = row; }
@@ -99,8 +100,8 @@ test('真实多轨音视频按全局索引选择音轨，频谱峰值对应不�
     for (const [streamIndex, frequency] of [[1, 1500], [2, 12000]]) {
       const result = await generateSpectrogram(path, streamIndex!);
       assert.equal(result.streamIndex, streamIndex);
-      assert.equal(result.width, 1200);
-      assert.equal(result.height, 744);
+      assert.equal(result.width, 2400);
+      assert.equal(result.height, 1488);
       assert.equal(result.sampleRateHz, 48000);
       assert.equal(result.channels, 1);
       assert.ok(Math.abs(result.durationSeconds - 0.5) < 0.01, 'use track duration rather than longer video/container');
@@ -170,7 +171,7 @@ test('链式 Ogg 中途改变采样率时明确拒绝，不返回末段的错误
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('伪造FLAC头部短时长不能绕过实际PCM硬上限或返回截断频谱', async () => {
+test('伪造FLAC头部短时长仍按完整解码样本生成频谱', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'file-analyzer-spectrum-forged-'));
   try {
     const path = join(directory, 'forged.flac');
@@ -182,19 +183,44 @@ test('伪造FLAC头部短时长不能绕过实际PCM硬上限或返回截断频�
     const parameters = flac.readBigUInt64BE(18);
     flac.writeBigUInt64BE((parameters & ~((1n << 36n) - 1n)) | 1n, 18);
     await writeFile(path, flac);
-    await assert.rejects(generateSpectrogram(path, 0), (error: unknown) =>
-      error instanceof SpectrogramError && error.code === 'SPECTROGRAM_SIZE_LIMIT' && /实际解码/.test(error.message));
+    const result = await generateSpectrogram(path, 0);
+    assert.equal(result.durationSeconds, 50);
+    assert.equal(result.sampleRateHz, 192_000);
+    assert.equal(result.channels, 8);
   } finally { await rm(directory, { recursive: true, force: true }); }
 });
 
-test('超出浮点PCM预算的多声道长文件明确拒绝，参数分析不受影响', async () => {
+test('超过旧 256 MiB 浮点预算的多声道音轨可流式生成完整频谱', async () => {
   const directory = await mkdtemp(join(tmpdir(), 'file-analyzer-spectrum-large-'));
   try {
     const path = join(directory, 'large.flac');
     await fixture(['-f', 'lavfi', '-i', 'anullsrc=r=192000:cl=7.1', '-t', '50', '-c:a', 'flac', '-compression_level', '0', path]);
-    await assert.rejects(generateSpectrogram(path, 0), (error: unknown) =>
-      error instanceof SpectrogramError && error.code === 'SPECTROGRAM_SIZE_LIMIT' && /256 MiB/.test(error.message));
+    const result = await generateSpectrogram(path, 0);
+    assert.equal(result.durationSeconds, 50);
+    assert.equal(result.sampleRateHz, 192_000);
+    assert.equal(result.channels, 8);
+    assert.equal(result.width, 2400);
+    assert.equal(result.height, 1488);
   } finally { await rm(directory, { recursive: true, force: true }); }
+});
+
+test('16 分 40 秒双声道音轨保留前后不同频率，生成 2400 像素完整频谱', { timeout: 90_000 }, async t => {
+  const directory = await mkdtemp(join(tmpdir(), 'file-analyzer-spectrum-long-'));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const path = join(directory, '完整长音轨.flac');
+  await fixture(['-f', 'lavfi', '-i',
+    'aevalsrc=0.1*sin(2*PI*if(lt(t\\,500)\\,1500\\,12000)*t):s=48000:d=1000',
+    '-ac', '2', '-c:a', 'flac', path]);
+  const spectrum = await generateSpectrogram(path, 0);
+  assert.equal(spectrum.durationSeconds, 1000);
+  assert.equal(spectrum.sampleRateHz, 48_000);
+  assert.equal(spectrum.channels, 2);
+  assert.equal(spectrum.width, 2400);
+  assert.equal(spectrum.height, 1488);
+  for (const [left, right, frequency] of [[0.05, 0.4, 1500], [0.6, 0.95, 12000]]) {
+    const peak = peakFrequency(spectrum.imageDataUrl, spectrum.width, spectrum.height, spectrum.sampleRateHz, left, right);
+    assert.ok(Math.abs(peak - frequency!) < 120, `expected ${frequency} Hz in ${left}–${right}, got ${peak} Hz`);
+  }
 });
 
 test('频谱明确报告缺少FFmpeg、损坏媒体、非法索引及目录输入', async () => {

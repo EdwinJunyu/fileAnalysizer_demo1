@@ -2,7 +2,7 @@ import { strict as assert } from 'node:assert';
 import { test } from 'node:test';
 import { field } from '../src/fields.js';
 import type { AnalysisResult, FileCategory, MediaStream, MetadataField } from '../src/types.js';
-import { buildComparison, categoryLabel, comparisonEntries, reorderComparisonColumns, firstAudioStream, firstVideoStream, formatBytes, formatField,
+import { buildComparison, categoryLabel, comparisonEntries, reorderComparisonColumns, firstAudioStream, firstVideoStream, formatBytes, formatDuration, formatField,
   stateLabel, type FileEntry } from '../src/ui/model.js';
 
 function result(category: FileCategory, fields: MetadataField[] = [], streams: MediaStream[] = [], ext: string = category): AnalysisResult {
@@ -53,19 +53,29 @@ test('field formatting preserves zero and false, and distinguishes every unavail
   assert.equal(formatField(field('x', 'x', null, 'tool', undefined, undefined, 'not_applicable')), '不适用');
   assert.equal(formatField(field('x', 'x', null, 'tool', undefined, undefined, 'unknown')), '无法确定');
   assert.equal(formatField(field('x', 'x', null, 'tool', undefined, undefined, 'error')), '解析错误');
-  assert.equal(formatField(field('x', 'x', 0, 'tool', 's')), '0 s');
+  assert.equal(formatField(field('x', 'x', 0, 'tool', 's')), '00:00:00');
   assert.equal(formatField(field('x', 'x', false, 'tool')), '否');
   assert.equal(formatField(field('x', 'x', true, 'tool')), '是');
   assert.equal(formatField(field('x', 'x', 48_000, 'tool', 'Hz')), '48,000 Hz');
-  assert.equal(formatField(field('x', 'x', 1e-8, 'tool', 's')), '0.00000001 s');
+  assert.equal(formatField(field('x', 'x', 1e-8, 'tool', 's')), '00:00:00.00000001');
 });
 
-test('byte display uses binary units and retains the precise byte count', () => {
-  assert.equal(formatBytes(0), '0 byte');
-  assert.equal(formatBytes(1023), '1,023 byte');
-  assert.equal(formatBytes(1536), '1.5 KiB（1,536 byte）');
-  assert.equal(formatField(field('file.sizeBytes', '文件大小', 1_048_577, 'filesystem', 'byte')),
-    '1 MiB（1,048,577 byte）');
+test('display units use decimal MB/GB, kb/s and elapsed hours:minutes:seconds', () => {
+  assert.equal(formatBytes(0), '0 MB');
+  assert.equal(formatBytes(1), '0.000001 MB');
+  assert.equal(formatBytes(1536), '0.001536 MB');
+  assert.equal(formatBytes(512_000_000), '512 MB');
+  assert.equal(formatBytes(1_500_000_000), '1.5 GB');
+  assert.equal(formatField(field('file.sizeBytes', '文件大小', 1_048_577, 'filesystem', 'byte')), '1.05 MB');
+  assert.equal(formatField(mediaField('media.bitRate', 1_411_200, 'bit/s')), '1,411.2 kb/s');
+  assert.equal(formatField(mediaField('stream.bitRate', 320_000, 'bit/s')), '320 kb/s');
+  assert.equal(formatField(mediaField('stream.duration', 5025.125, 's')), '01:23:45.125');
+  assert.equal(formatDuration(90_061), '25:01:01');
+  assert.equal(formatDuration(59.9999999996), '00:01:00');
+  for (const invalid of [-1, NaN, Infinity]) {
+    assert.equal(formatBytes(invalid), '无法确定');
+    assert.equal(formatDuration(invalid), '无法确定');
+  }
 });
 
 test('only filesystem ISO dates become explicitly zoned local time', () => {
@@ -88,7 +98,7 @@ test('mixed categories use not applicable while missing applicable parameters st
   const image = result('image', [field('image.width', '宽度', 800, 'ExifTool', 'px'),
     field('image.dpiX', '水平 DPI', null, 'ExifTool', 'dpi')]);
   const files = [entry(audio), entry(image)];
-  assert.deepEqual(values(files, 'media.duration'), ['0 s', '不适用']);
+  assert.deepEqual(values(files, 'media.duration'), ['00:00:00', '不适用']);
   assert.deepEqual(values(files, 'media.bitRate'), ['未记录', '不适用']);
   assert.deepEqual(values(files, 'audio.sampleRate'), ['44,100 Hz', '不适用']);
   assert.deepEqual(values(files, 'image.width'), ['不适用', '800 px']);

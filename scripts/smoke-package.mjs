@@ -110,7 +110,7 @@ try {
   await page.getByRole('button', { name: '生成频谱', exact: true }).click();
   const spectrogram = page.locator('.spectrogram-image');
   await expect(spectrogram).toBeVisible({ timeout: 30_000 });
-  await expect.poll(() => spectrogram.evaluate(image => image.naturalWidth)).toBe(1200);
+  await expect.poll(() => spectrogram.evaluate(image => image.naturalWidth)).toBe(2400);
   await page.getByRole('button', { name: /packaging smoke 中文\.docx.*解析完成/ }).click();
   await expect(page.locator('#detail-content')).toContainText('Packaging smoke author');
   await expect(page.locator('#privacy-section')).toHaveAttribute('data-state', 'checked');

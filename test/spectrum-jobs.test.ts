@@ -198,7 +198,7 @@ test('真实频谱Worker取消会回收FFmpeg并完成临时图像目录清理',
       const metadata = JSON.stringify({ streams: [{ index: 2, codec_type: 'audio',
         sample_rate: '48000', channels: 2, duration: '1' }], format: { duration: '1' } });
       await writeFile(probe, `#!${process.execPath}\nprocess.stdout.write(${JSON.stringify(metadata)});\n`, { mode: 0o700 });
-      await writeFile(ffmpeg, `#!${process.execPath}\nprocess.on('SIGTERM', () => {}); require('node:fs').writeFileSync(${JSON.stringify(marker)}, JSON.stringify({pid:process.pid,directory:require('node:path').dirname(process.argv.at(-1))})); setInterval(() => {},1000);\n`, { mode: 0o700 });
+      await writeFile(ffmpeg, `#!${process.execPath}\nprocess.on('SIGTERM', () => {}); require('node:fs').writeFileSync(${JSON.stringify(marker)}, JSON.stringify({pid:process.pid,directory:process.cwd()})); setInterval(() => {},1000);\n`, { mode: 0o700 });
       rejected = assert.rejects(analyzer.generateSpectrogram(audio, 2), /已关闭/);
       const deadline = Date.now() + 5000;
       while (Date.now() < deadline) {

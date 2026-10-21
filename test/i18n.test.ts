@@ -48,8 +48,9 @@ test('按当前语言处理数字与单复数，日期和比较标签在切换�
   const date = { key: 'file.createdAt', label: '文件系统创建时间', source: 'filesystem', status: 'present' as const, value: '2026-10-20T10:00:00Z' };
   const englishDate = formatField(date);
   setLocale('fr-FR');
-  assert.ok(formatBytes(1536).startsWith('1,5 KiB'));
+  assert.ok(formatBytes(1_500_000).startsWith('1,5 MB'));
   assert.notEqual(formatField(date), englishDate);
+  assert.equal(formatField({ key: 'media.duration', label: '时长', source: 'fixture', status: 'present', value: 5025.125, unit: 's' }), '01:23:45,125');
   const files: FileEntry[] = [{ id: 'one', path: '/作者.png', name: '作者.png', state: 'waiting' }];
   assert.equal(buildComparison(files).rows[0]!.label, 'Nom du fichier');
   assert.equal(buildComparison(files).rows[0]!.values[0], 'En attente');
@@ -63,7 +64,7 @@ test('字段原始值不翻译，模板参数按纯文本保留，内置动态�
   assert.equal(translateText('第 2 页的尺寸或旋转无法可靠读取，已跳过此页并保留其他可用结果。'),
     'Could not read dimensions or rotation on page 2. That page was skipped; other usable results are retained.');
   assert.equal(translateText('内容识别未完成：内容识别超时（10 ms）'), 'Content detection was incomplete: Content detection timed out (10 ms)');
-  assert.ok(translateText('文档文件超过单个文件 512 MiB 的大小上限，未执行专属解析。请缩小文件后重新解析；基础文件信息仍可查看。').startsWith('Document file'));
+  assert.ok(translateText('文档文件超过单个文件 1 GB 的大小上限，未执行专属解析。请缩小文件后重新解析；基础文件信息仍可查看。').startsWith('Document file'));
   assert.equal(translateNote('由每米像素数 × 0.0254 换算; 文件记录的名义打印分辨率，不代表画质'),
     'Converted from pixels per meter × 0.0254; Nominal print resolution recorded in the file; not an image quality measure');
   assert.equal(translateText('docProps/core.xml：XML 命名空间无效'), 'docProps/core.xml: Invalid XML namespace');

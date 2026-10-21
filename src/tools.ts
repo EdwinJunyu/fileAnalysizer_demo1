@@ -1,4 +1,4 @@
-import { execFile, type ChildProcess } from 'node:child_process';
+import { execFile, spawn, type ChildProcess } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { constants } from 'node:fs';
 import { join, resolve, isAbsolute, sep } from 'node:path';
@@ -87,6 +87,61 @@ export async function runTool(tool: ToolName, args: string[], options: AnalysisO
     });
     const running = { child, exited: new Promise<void>(resolveExit => {
       child.once('close', () => { activeTools.delete(running); resolveExit(); });
+    }) };
+    activeTools.add(running);
+  });
+}
+
+/** Consume binary stdout incrementally; keep the same worker shutdown registry. */
+export async function streamTool(tool: ToolName, args: string[], consume: (chunk: Buffer) => void,
+  options: AnalysisOptions & { cwd?: string } = {}): Promise<{ stderr: string }> {
+  const timeout = validateTimeout(options.timeoutMs);
+  const checkOpen = (): void => {
+    if (shutdown) throw new ToolError('TOOL_CANCELLED', `${tool} 解析已取消。`, tool);
+  };
+  checkOpen();
+  const executable = await toolPath(tool, options);
+  checkOpen();
+  return new Promise((resolveOutput, reject) => {
+    const child = spawn(executable, args, { stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true, cwd: options.cwd });
+    const errors: Buffer[] = [];
+    let stderrBytes = 0;
+    let failure: Error | undefined;
+    const timer = setTimeout(() => {
+      failure ??= new ToolError('TOOL_TIMEOUT', `${tool} 解析超时（${timeout} ms）。`, tool);
+      child.kill('SIGKILL');
+    }, timeout);
+    child.stdout.on('data', (chunk: Buffer) => {
+      if (failure) return;
+      try { consume(chunk); }
+      catch (error) { failure = error instanceof Error ? error : new Error(String(error)); child.kill('SIGKILL'); }
+    });
+    child.stderr.on('data', (chunk: Buffer) => {
+      if (failure) return;
+      stderrBytes += chunk.length;
+      if (stderrBytes > 16 * 1024 * 1024) {
+        failure = new ToolError('TOOL_OUTPUT_LIMIT', `${tool} 输出超过允许大小。`, tool);
+        child.kill('SIGKILL');
+      } else errors.push(chunk);
+    });
+    child.once('error', error => {
+      const code = (error as NodeJS.ErrnoException).code;
+      failure ??= new ToolError(code === 'ENOENT' ? 'TOOL_NOT_FOUND' :
+        code === 'EACCES' || code === 'EPERM' ? 'TOOL_NOT_EXECUTABLE' : 'TOOL_FAILED',
+      code === 'ENOENT' ? `未找到 ${tool}，请安装工具或设置其路径。` :
+        code === 'EACCES' || code === 'EPERM' ? `${tool} 无法执行，请检查路径和权限。` : `${tool} 解析失败：${error.message}`, tool);
+    });
+    const running = { child, exited: new Promise<void>(resolveExit => {
+      child.once('close', code => {
+        clearTimeout(timer);
+        activeTools.delete(running);
+        resolveExit();
+        const stderr = Buffer.concat(errors).toString('utf8');
+        if (shutdown) reject(new ToolError('TOOL_CANCELLED', `${tool} 解析已取消。`, tool));
+        else if (failure) reject(failure);
+        else if (code !== 0) reject(new ToolError('TOOL_FAILED', `${tool} 解析失败：${stderr.trim().slice(0, 1200) || code}`, tool));
+        else resolveOutput({ stderr });
+      });
     }) };
     activeTools.add(running);
   });

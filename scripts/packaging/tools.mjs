@@ -142,7 +142,9 @@ export async function verifyTools(directory, target, { executeTools = true } = {
     const capabilities = await execute(join(directory, 'ffmpeg' + suffix), ['-hide_banner', '-encoders'], options);
     if (!/\bpng\s+PNG/.test(capabilities.stdout)) throw new Error('FFmpeg lacks the PNG encoder required for spectrograms.');
     const filters = await execute(join(directory, 'ffmpeg' + suffix), ['-hide_banner', '-filters'], options);
-    if (!/\bshowspectrumpic\s/.test(filters.stdout)) throw new Error('FFmpeg lacks the spectrogram filter.');
+    if (!/\bshowspectrumpic\s/.test(filters.stdout) || !/\bshowspectrum\s/.test(filters.stdout)) {
+      throw new Error('FFmpeg lacks the spectrogram filters.');
+    }
     const { stdout } = await execute(join(directory, 'exiftool' + suffix), ['-ver'], options);
     if (stdout.trim() !== sources.exiftool.version) throw new Error(`Unexpected ExifTool version: ${stdout.trim()}`);
     if (target.platform !== 'win32') {

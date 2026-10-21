@@ -49,8 +49,8 @@ npm run package:release
 工具源及散列见 [`scripts/packaging/sources.json`](../scripts/packaging/sources.json)。
 更新版本时需同时审查源码、散列、许可与烟雾测试；不要从第三方下载页随意换一个 FFmpeg。
 
-输出在 `release/`，例如 `File-Analyzer-0.1.0-win-x64.exe` 或
-`File-Analyzer-0.1.0-mac-arm64.dmg`。Windows 安装到当前用户目录，不需要管理员权限；
+输出在 `release/`，例如 `File-Analyzer-0.1.1-win-x64.exe` 或
+`File-Analyzer-0.1.1-mac-arm64.dmg`。Windows 安装到当前用户目录，不需要管理员权限；
 macOS 打开 DMG 后将 `File Analyzer.app` 拖入 Applications。
 `package:dir` 单独生成的未安装应用用于烟雾测试，必须保留整个应用目录，不能只复制 exe。
 
@@ -120,7 +120,7 @@ CI 只上传待审阅安装器、使用说明、校验值及体积报告，保�
 `smoke:package` 校验打包后的工具、将工具复制到带空格和中文的新路径后再次执行，
 用 FFmpeg 解码测试音频，用 ExifTool 读取 DOCX 作者，随后启动真正的打包 Electron，
 检查 `app.isPackaged`、ASAR 内的 Worker，以及界面实际展示的媒体、Office、PDF 结果，
-生成真正的 1200 像素宽频谱图，并检查 PDF 页数、UserUnit、旋转与作者隐私信息。
+生成真正的 2400 像素宽频谱图，并检查 PDF 页数、UserUnit、旋转与作者隐私信息。
 迁移后的 Perl `@INC` 必须指向新目录。应用在离线模式和隔离 PATH 下完成检查，
 配置的全局工具路径也刻意无效，确保使用随包工具；记录外部请求及未捕获的页面异常。
 删除测试源文件后切换全部六种语言，验证已有结果仍可查看，且不会重新解析。

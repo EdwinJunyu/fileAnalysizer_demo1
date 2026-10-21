@@ -99,12 +99,19 @@ test('真实后台解析单个/多个文件，详情及混合类型对比可用'
   await pick([fixtures.files.wav!, fixtures.files.png!, fixtures.files.docx!]);
   await completed(3);
   await expect(page.locator('#detail-content')).toContainText('48,000 Hz');
+  await expect(page.locator('#base-info-table').getByRole('row', { name: /文件大小/ }).locator('.field-value')).toHaveText(/^\d+(?:\.\d+)? MB$/);
+  await expect(page.locator('#file-parameters-table').getByRole('row', { name: /文件时长/ })).toContainText('00:00:00.4');
+  await expect(page.locator('#file-parameters-table').getByRole('row', { name: /文件总码率/ })).toContainText('kb/s');
+  await expect(page.locator('.usage-audio')).toContainText('PCM 码率：1,536 kb/s。');
+  await expect(page.locator('.usage-audio')).toContainText('时长 00:00:00.4');
   await expect(page.getByRole('heading', { name: '音频轨道 #0', exact: true })).toBeVisible();
   await page.getByRole('button', { name: /sample.png.*解析完成/ }).click();
   await expect(page.locator('#detail-content')).toContainText('299.9994 dpi');
   await expect(page.getByRole('heading', { name: '文件参数', exact: true })).toBeVisible();
   await page.getByRole('tab', { name: '参数对比' }).click();
   await expect(page.getByRole('heading', { name: '3 个文件的参数对比' })).toBeVisible();
+  await expect(page.getByRole('row', { name: /文件时长/ })).toContainText('00:00:00.4');
+  await expect(page.getByRole('row', { name: /文件总码率/ })).toContainText('kb/s');
   const sampleRate = page.getByRole('row', { name: /采样率（首个音频轨道）/ });
   await expect(sampleRate).toContainText('48,000 Hz');
   await expect(sampleRate.getByRole('cell', { name: '不适用', exact: true })).toHaveCount(2);
@@ -277,7 +284,7 @@ test('打印用途计算保留条件、验证输入，并与文件记录的 DPI 
   await expect(help.locator('..')).toHaveAttribute('open', '');
 
   await page.getByRole('button', { name: /sample.wav.*解析完成/ }).click();
-  await expect(page.locator('.usage-audio')).toContainText('11,520,000 byte');
+  await expect(page.locator('.usage-audio')).toContainText('每分钟约 11.52 MB');
   await page.getByRole('button', { name: /sample.png.*解析完成/ }).click();
   await expect(input).toHaveValue('150');
   await expect(page.locator('#print-result')).toContainText('按 150 DPI');
@@ -376,12 +383,12 @@ test('超限文档和媒体显示原因及基础信息，队列仍能完成其�
     paths.push(path);
   }
   await pick([...paths, fixtures.files.png!]); await completed(3);
-  await expect(page.locator('#file-size-hint')).toContainText('文档最大 512 MiB，音视频最大 2 GiB');
-  await expect(page.locator('#detail-content')).toContainText('超过单个文件 512 MiB');
+  await expect(page.locator('#file-size-hint')).toContainText('文档最大 1 GB，音视频最大 6 GB');
+  await expect(page.locator('#detail-content')).toContainText('超过单个文件 1 GB');
   await expect(page.locator('#base-info-table')).toContainText('oversized.pdf');
   await expect(page.locator('#privacy-section')).toHaveAttribute('data-state', 'unavailable');
   await page.getByRole('button', { name: /oversized.wav.*解析失败/ }).click();
-  await expect(page.locator('#detail-content')).toContainText('超过单个文件 2 GiB');
+  await expect(page.locator('#detail-content')).toContainText('超过单个文件 6 GB');
   await page.getByRole('button', { name: /sample.png.*解析完成/ }).click();
   await expect(page.locator('#file-parameters-table')).toContainText('像素宽度');
   await page.setViewportSize({ width: 390, height: 780 });

@@ -1,5 +1,12 @@
 /** Bundled translations, ordered en-US, ja-JP, ko-KR, fr-FR, es-ES. Chinese source messages are stable catalogue keys. */
 export const catalog: Record<string, readonly [string, string, string, string, string]> = {
+  "完整音轨流式分析；同一时间列保留较强信号，短暂峰值可能更突出。": [
+    "The entire track is analyzed as a stream. Stronger signals are retained within each time column, so brief peaks may be more prominent.",
+    "トラック全体をストリーム処理で解析します。同じ時間列では強い信号を保持するため、短いピークが目立つ場合があります。",
+    "전체 트랙을 스트리밍으로 분석합니다. 각 시간 열에서 더 강한 신호를 유지하므로 짧은 피크가 더 두드러질 수 있습니다.",
+    "Toute la piste est analysée en flux. Chaque colonne temporelle conserve les signaux les plus forts ; les pics brefs peuvent être accentués.",
+    "Se analiza toda la pista en flujo. Cada columna temporal conserva las señales más intensas, por lo que los picos breves pueden destacar más."
+  ],
   "频谱图，窄窗口可横向滚动查看完整坐标和色标": [
     "Spectrogram; in a narrow window, scroll horizontally to see all axes and the color scale",
     "スペクトログラム。狭いウィンドウでは横にスクロールすると、すべての目盛りとカラースケールを確認できます",
@@ -507,19 +514,19 @@ export const catalog: Record<string, readonly [string, string, string, string, s
     "Environ {0} par minute",
     "Aproximadamente {0} por minuto"
   ],
-  "PCM 码率：{0} bit/s。": [
-    "PCM bitrate: {0} bit/s.",
-    "PCM ビットレート：{0} bit/s。",
-    "PCM 비트레이트: {0} bit/s.",
-    "Débit PCM : {0} bit/s.",
-    "Tasa de bits PCM: {0} bit/s."
+  "PCM 码率：{0}。": [
+    "PCM bitrate: {0}.",
+    "PCM ビットレート：{0}。",
+    "PCM 비트레이트: {0}.",
+    "Débit PCM : {0}.",
+    "Tasa de bits PCM: {0}."
   ],
-  "按该轨道记录的 {0} 秒估算：{1}。": [
-    "Estimated for this track’s recorded duration of {0} s: {1}.",
-    "このトラックに記録された長さ {0} 秒での概算：{1}。",
-    "이 트랙에 기록된 길이 {0}초 기준 추정: {1}.",
-    "Estimation pour la durée enregistrée de cette piste ({0} s) : {1}.",
-    "Estimación para la duración registrada de esta pista ({0} s): {1}."
+  "按该轨道记录的时长 {0} 估算：{1}。": [
+    "Estimated for this track’s recorded duration of {0}: {1}.",
+    "このトラックに記録された長さ {0} での概算：{1}。",
+    "이 트랙에 기록된 길이 {0} 기준 추정: {1}.",
+    "Estimation pour la durée enregistrée de cette piste ({0}) : {1}.",
+    "Estimación para la duración registrada de esta pista ({0}): {1}."
   ],
   "缺少可可靠计算的轨道时长，仅显示每分钟用量；不以容器时长代替。": [
     "No reliable track duration. Only the per-minute estimate is shown; container duration is not substituted.",
@@ -1298,12 +1305,12 @@ export const catalog: Record<string, readonly [string, string, string, string, s
     "Le type est détecté d’après le contenu ; l’extension sert de recours. Le conteneur peut différer des codecs audio/vidéo.",
     "El formato se detecta por el contenido; la extensión es una referencia secundaria. El contenedor puede diferir de los códecs de audio y vídeo."
   ],
-  "文件在磁盘中的字节数，包含压缩数据、容器和元数据。1 KiB = 1024 byte，1 MiB = 1024 KiB。": [
-    "On-disk bytes, including compressed data, container and metadata. 1 KiB = 1024 bytes; 1 MiB = 1024 KiB.",
-    "圧縮データ、コンテナー、メタデータを含むディスク上のバイト数です。1 KiB = 1024 byte、1 MiB = 1024 KiB。",
-    "압축 데이터, 컨테이너 및 메타데이터를 포함한 디스크상의 바이트 수입니다. 1 KiB = 1024 byte, 1 MiB = 1024 KiB.",
-    "Octets sur disque, données compressées, conteneur et métadonnées compris. 1 KiB = 1024 octets ; 1 MiB = 1024 KiB.",
-    "Bytes en disco, incluidos los datos comprimidos, el contenedor y los metadatos. 1 KiB = 1024 bytes; 1 MiB = 1024 KiB."
+  "文件在磁盘中占用的大小，包含压缩数据、容器和元数据。显示为 MB 或 GB（十进制），1 GB = 1000 MB。": [
+    "On-disk size, including compressed data, container and metadata. Displayed in decimal MB or GB; 1 GB = 1000 MB.",
+    "圧縮データ、コンテナー、メタデータを含むディスク上のサイズです。10進法の MB または GB で表示します。1 GB = 1000 MB。",
+    "압축 데이터, 컨테이너 및 메타데이터를 포함한 디스크상의 크기입니다. 10진수 MB 또는 GB로 표시합니다. 1 GB = 1000 MB.",
+    "Taille sur disque, données compressées, conteneur et métadonnées compris. Affichage en MB ou GB décimaux ; 1 GB = 1000 MB.",
+    "Tamaño en disco, incluidos los datos comprimidos, el contenedor y los metadatos. Se muestra en MB o GB decimales; 1 GB = 1000 MB."
   ],
   "文件系统记录的创建时间。复制、下载或迁移可能改变它，不能据此确定作品的创作时间。": [
     "Creation time recorded by the filesystem. Copying, downloading or moving can change it; it does not establish when the work was created.",
@@ -2593,12 +2600,12 @@ export const catalog: Record<string, readonly [string, string, string, string, s
     "Ce PDF est chiffré. Structure non déchiffrée ; seules les métadonnées lisibles sont affichées.",
     "Este PDF está cifrado. No se descifró la estructura; solo se muestran los metadatos legibles."
   ],
-  "PDF 超过 512 MiB，未检查页面结构；可读取的元数据仍保留。": [
-    "PDF exceeds 512 MiB. Page structure was not checked; readable metadata is retained.",
-    "PDF が 512 MiB を超えています。ページ構造は確認せず、読み取れたメタデータを保持しています。",
-    "PDF가 512 MiB를 초과합니다. 페이지 구조를 검사하지 않았으며 읽은 메타데이터는 유지됩니다.",
-    "Le PDF dépasse 512 MiB. Structure non vérifiée ; métadonnées lisibles conservées.",
-    "El PDF supera 512 MiB. No se revisó la estructura; se conservan los metadatos legibles."
+  "PDF 超过 1 GB，未检查页面结构；可读取的元数据仍保留。": [
+    "PDF exceeds 1 GB. Page structure was not checked; readable metadata is retained.",
+    "PDF が 1 GB を超えています。ページ構造は確認せず、読み取れたメタデータを保持しています。",
+    "PDF가 1 GB를 초과합니다. 페이지 구조를 검사하지 않았으며 읽은 메타데이터는 유지됩니다.",
+    "Le PDF dépasse 1 GB. Structure non vérifiée ; métadonnées lisibles conservées.",
+    "El PDF supera 1 GB. No se revisó la estructura; se conservan los metadatos legibles."
   ],
   "PDF 页面结构超出解析内存预算，已停止结构检查；可读取的元数据仍保留。": [
     "PDF structure exceeded the parsing memory budget. Structural checking stopped; readable metadata is retained.",
@@ -2705,13 +2712,6 @@ export const catalog: Record<string, readonly [string, string, string, string, s
     "Fréquence ou nombre de canaux indéterminé ; spectrogramme impossible.",
     "Se desconoce la frecuencia de muestreo o los canales; no se puede generar el espectrograma."
   ],
-  "该音轨过长或声道过多，频谱内存预计超过 256 MiB。请先截取较短片段；文件参数仍可查看。": [
-    "This track is too long or has too many channels; estimated spectrogram memory exceeds 256 MiB. Trim the audio first. File parameters remain available.",
-    "トラックが長いかチャンネル数が多いため、推定メモリー量が 256 MiB を超えます。短い区間に切り出してください。ファイルのパラメーターは確認できます。",
-    "트랙이 너무 길거나 채널이 많아 예상 메모리가 256 MiB를 초과합니다. 짧게 잘라 사용하세요. 파일 매개변수는 볼 수 있습니다.",
-    "Piste trop longue ou trop de canaux : mémoire estimée supérieure à 256 MiB. Raccourcissez l’audio ; les paramètres restent disponibles.",
-    "La pista es demasiado larga o tiene muchos canales: la memoria estimada supera 256 MiB. Recorta el audio; los parámetros siguen disponibles."
-  ],
   "音轨中途改变了采样率、声道布局或采样格式，暂不支持生成完整频谱。请先统一音轨参数后重试；文件参数仍可查看。": [
     "Sample rate, layout or format changed during the track; a complete spectrogram is not supported. Make the parameters consistent and retry. File parameters remain available.",
     "トラックの途中で周波数、チャンネル配置、サンプル形式が変わったため、全体のスペクトログラムに対応していません。条件を統一して再試行してください。パラメーターは確認できます。",
@@ -2725,13 +2725,6 @@ export const catalog: Record<string, readonly [string, string, string, string, s
     "스펙트로그램의 실제 오디오 길이를 확인하지 못했습니다.",
     "Impossible de confirmer la durée audio réelle du spectrogramme.",
     "No se pudo confirmar la duración real de audio del espectrograma."
-  ],
-  "该音轨实际解码数据超过 256 MiB。请先截取较短片段；文件参数仍可查看。": [
-    "Decoded track data exceeds 256 MiB. Trim the audio first; file parameters remain available.",
-    "トラックのデコードデータが 256 MiB を超えます。短い区間に切り出してください。ファイルのパラメーターは確認できます。",
-    "디코딩 데이터가 256 MiB를 초과합니다. 짧게 잘라 사용하세요. 파일 매개변수는 볼 수 있습니다.",
-    "Les données décodées dépassent 256 MiB. Raccourcissez l’audio ; les paramètres restent disponibles.",
-    "Los datos decodificados superan 256 MiB. Recorta el audio; los parámetros siguen disponibles."
   ],
   "频谱图像超过允许大小。": [
     "The spectrogram image exceeds the allowed size.",
@@ -2747,12 +2740,12 @@ export const catalog: Record<string, readonly [string, string, string, string, s
     "FFmpeg n’a pas produit de spectrogramme valide.",
     "FFmpeg no generó una imagen de espectrograma válida."
   ],
-  "单个文档最大 512 MiB，音视频最大 2 GiB（按 1024 进制）。": [
-    "Per-file limit: documents 512 MiB; audio/video 2 GiB (base 1024).",
-    "1 ファイルの上限：文書 512 MiB、音声・動画 2 GiB（1024 進法）。",
-    "파일당 한도: 문서 512 MiB, 오디오·비디오 2 GiB(1024 기준).",
-    "Limite par fichier : documents 512 MiB ; audio/vidéo 2 GiB (base 1024).",
-    "Límite por archivo: documentos 512 MiB; audio/vídeo 2 GiB (base 1024)."
+  "单个文档最大 1 GB，音视频最大 6 GB（十进制）。": [
+    "Per-file limit: documents 1 GB; audio/video 6 GB (decimal).",
+    "1 ファイルの上限：文書 1 GB、音声・動画 6 GB（10進法）。",
+    "파일당 한도: 문서 1 GB, 오디오·비디오 6 GB(10진수 기준).",
+    "Limite par fichier : documents 1 GB ; audio/vidéo 6 GB (base 10).",
+    "Límite por archivo: documentos 1 GB; audio/vídeo 6 GB (base 10)."
   ],
   "{0}文件超过单个文件 {1} 的大小上限，未执行专属解析。请缩小文件后重新解析；基础文件信息仍可查看。": [
     "{0} file exceeds the per-file limit of {1}; specialized analysis was not run. Reduce the file size and analyze again. Basic information remains available.",

@@ -95,7 +95,7 @@ export async function extractPdf(path: string, options: AnalysisOptions): Promis
     const code = error instanceof Error && knownCodes.includes(error.message) ? error.message : 'PDF_STRUCTURE_FAILED';
     const messages: Record<string, string> = {
       PDF_ENCRYPTED: 'PDF 已加密，未解密页面结构；只能展示可读取的元数据。',
-      PDF_SIZE_LIMIT: 'PDF 超过 512 MiB，未检查页面结构；可读取的元数据仍保留。',
+      PDF_SIZE_LIMIT: 'PDF 超过 1 GB，未检查页面结构；可读取的元数据仍保留。',
       PDF_MEMORY_LIMIT: 'PDF 页面结构超出解析内存预算，已停止结构检查；可读取的元数据仍保留。',
       PDF_READ_TIMEOUT: 'PDF 页面结构检查超时，已停止解析；可读取的元数据仍保留。',
       PDF_READ_CANCELLED: 'PDF 页面结构检查已取消。',

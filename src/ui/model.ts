@@ -34,7 +34,6 @@ export function reorderComparisonColumns(order: readonly string[], source: strin
 }
 
 const numbers = { format: (value: number) => numberFormat({ maximumSignificantDigits: 15 }).format(value) };
-const compactNumbers = { format: (value: number) => numberFormat({ maximumFractionDigits: 2 }).format(value) };
 const localTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const dateOptions: Intl.DateTimeFormatOptions = {
   year: 'numeric', month: '2-digit', day: '2-digit',
@@ -54,14 +53,28 @@ const unitLabels: Readonly<Record<string, string>> = {
   characters: '字符', paragraphs: '段', lines: '行',
 };
 
-/** Binary display units are explicit; retain the exact byte count alongside them. */
+/** Decimal MB/GB for display; the original byte count stays in the analysis result. */
 export function formatBytes(size: number): string {
   if (!Number.isFinite(size) || size < 0) return t('无法确定');
-  const exact = `${numbers.format(size)} ${t('byte', size)}`;
-  if (size < 1024) return exact;
-  const units = ['KiB', 'MiB', 'GiB', 'TiB', 'PiB'];
-  const exponent = Math.min(Math.floor(Math.log(size) / Math.log(1024)), units.length);
-  return t('{0} {1}（{2}）', compactNumbers.format(size / 1024 ** exponent), units[exponent - 1], exact);
+  const gigabytes = size >= 1_000_000_000;
+  const value = size / (gigabytes ? 1_000_000_000 : 1_000_000);
+  const formatted = numberFormat({ maximumFractionDigits: size < 1_000_000 ? 6 : 2 }).format(value);
+  return `${formatted} ${gigabytes ? 'GB' : 'MB'}`;
+}
+
+export function formatBitRate(bitsPerSecond: number): string {
+  if (!Number.isFinite(bitsPerSecond) || bitsPerSecond < 0) return t('无法确定');
+  return `${numberFormat({ maximumFractionDigits: 3 }).format(bitsPerSecond / 1000)} kb/s`;
+}
+
+/** Elapsed time, with unbounded hours and subsecond precision; never a date/timezone. */
+export function formatDuration(seconds: number): string {
+  if (!Number.isFinite(seconds) || seconds < 0 || !Number.isSafeInteger(Math.floor(seconds))) return t('无法确定');
+  const [integer, fraction] = seconds.toFixed(9).split('.');
+  const wholeSeconds = Number(integer);
+  const clockNumber = numberFormat({ minimumIntegerDigits: 2, useGrouping: false });
+  const tail = numberFormat({ minimumIntegerDigits: 2, maximumFractionDigits: 9, useGrouping: false });
+  return `${clockNumber.format(Math.floor(wholeSeconds / 3600))}:${clockNumber.format(Math.floor(wholeSeconds / 60) % 60)}:${tail.format(wholeSeconds % 60 + Number(`0.${fraction}`))}`;
 }
 
 /** One value formatter is shared by details and comparison; absent values never become zero. */
@@ -79,6 +92,8 @@ export function formatField(field: MetadataField | undefined): string {
     if (Number.isFinite(date.valueOf())) return t('{0}（{1}）', dates.format(date), localTimeZone);
   }
   if (field.unit === 'byte' && typeof field.value === 'number') return formatBytes(field.value);
+  if (field.unit === 'bit/s' && typeof field.value === 'number') return formatBitRate(field.value);
+  if (field.unit === 's' && typeof field.value === 'number') return formatDuration(field.value);
   const value = typeof field.value === 'number' ? numbers.format(field.value) : field.value;
   if (field.key === 'file.analysisLevel' && field.source === 'analyzer') return translateText(String(value));
   return field.unit ? `${value} ${t(unitLabels[field.unit] ?? field.unit, field.value)}` : value;

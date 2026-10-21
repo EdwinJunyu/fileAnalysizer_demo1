@@ -1,6 +1,6 @@
 /** One plotting contract for the FFmpeg image and the desktop axes/legend. */
 export const SPECTRUM_STYLE = {
-  width: 1200, height: 744, color: 'intensity', minDb: -120, maxDb: 0,
+  width: 2400, height: 1488, color: 'intensity', minDb: -120, maxDb: 0,
 } as const;
 
 // FFmpeg's intensity palette, expressed in full-range BT.601 YUV.

@@ -94,7 +94,7 @@ test('PDF 页数和大小限制显式报告，保留已检查范围', async t =>
   assert.ok(limited.issues.some(issue => issue.code === 'FILE_SIZE_LIMIT'));
 });
 
-test('512 MiB 临界大小的有效 PDF 能完成结构解析并保留作者', { timeout: 90_000 }, async t => {
+test('1 GB 临界大小的有效 PDF 能完成结构解析并保留作者', { timeout: 90_000 }, async t => {
   const dir = await mkdtemp(join(tmpdir(), 'pdf-full-size-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const path = join(dir, 'full-size.pdf'); await writeSparsePdf(path, DOCUMENT_MAX_BYTES);
@@ -105,7 +105,7 @@ test('512 MiB 临界大小的有效 PDF 能完成结构解析并保留作者', {
   assert.ok(result.privacy!.findings.some(item => item.value === 'Public large PDF author'));
   assert.equal(result.issues.length, 1, JSON.stringify(result.issues));
   assert.equal(result.issues[0]!.tool, 'exiftool');
-  t.diagnostic(`512 MiB PDF test process peak RSS: ${process.resourceUsage().maxRSS} KiB`);
+  t.diagnostic(`1 GB PDF test process peak RSS: ${process.resourceUsage().maxRSS} KiB`);
 });
 
 test('PDF OpenAction 的 JavaScript 不执行或请求网络', async t => {

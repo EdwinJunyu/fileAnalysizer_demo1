@@ -94,8 +94,8 @@ async function generate(): Promise<void> {
   await page.locator('#spectrogram-generate').click();
   await expect(page.locator('#spectrogram-section')).toHaveAttribute('data-state', 'ready');
   await expect(page.locator('#spectrogram-image')).toBeVisible();
-  await expect(page.locator('#spectrogram-image')).toHaveJSProperty('naturalWidth', 1200);
-  await expect(page.locator('#spectrogram-image')).toHaveJSProperty('naturalHeight', 744);
+  await expect(page.locator('#spectrogram-image')).toHaveJSProperty('naturalWidth', 2400);
+  await expect(page.locator('#spectrogram-image')).toHaveJSProperty('naturalHeight', 1488);
 }
 
 /** Locate the brightest horizontal band without depending on exact PNG bytes. */
