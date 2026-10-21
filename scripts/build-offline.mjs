@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { copyFile, readFile } from 'node:fs/promises';
+import { appendFile, copyFile, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { projectRoot, targetFromArguments } from './packaging/tools.mjs';
 import { writeReleaseReport } from './packaging/release-report.mjs';
@@ -13,18 +13,34 @@ const target = targetFromArguments(args);
 const npmCli = process.env.npm_execpath;
 if (!npmCli) throw new Error('Run this build with npm run package:offline.');
 
-async function run(executable, arguments_) {
+async function run(executable, arguments_, stage = arguments_[0]) {
+  console.log(`Offline package stage: ${stage}`);
   await new Promise((resolve, reject) => {
-    const child = spawn(executable, arguments_, { cwd: projectRoot, stdio: 'inherit', env: process.env });
-    child.once('error', reject);
-    child.once('exit', (code, signal) => code === 0 ? resolve() : reject(
-      new Error(`Offline package build stopped: ${arguments_.join(' ')} (${signal ?? code}).`),
+    let tail = '';
+    const child = spawn(executable, arguments_, { cwd: projectRoot, stdio: ['inherit', 'pipe', 'pipe'], env: process.env });
+    for (const [source, destination] of [[child.stdout, process.stdout], [child.stderr, process.stderr]]) {
+      source.on('data', chunk => {
+        destination.write(chunk);
+        tail = (tail + chunk.toString()).slice(-12_000);
+      });
+    }
+    const fail = error => {
+      if (process.env.GITHUB_ACTIONS === 'true') {
+        const message = `${stage}: ${error.message}\n${tail}`.replaceAll('%', '%25').replaceAll('\r', '%0D').replaceAll('\n', '%0A');
+        console.error(`::error title=Offline package build::${message}`);
+      }
+      reject(error);
+    };
+    child.once('error', fail);
+    // close waits for all captured output, including the last compiler/test error.
+    child.once('close', (code, signal) => code === 0 ? resolve() : fail(
+      new Error(`Offline package build stopped: ${stage} (${signal ?? code}).`),
     ));
   });
 }
 
-const npm = (...arguments_) => run(process.execPath, [npmCli, ...arguments_]);
-const script = (name, ...arguments_) => run(process.execPath, [join(projectRoot, 'scripts', name), ...arguments_]);
+const npm = (...arguments_) => run(process.execPath, [npmCli, ...arguments_], `npm ${arguments_.join(' ')}`);
+const script = (name, ...arguments_) => run(process.execPath, [join(projectRoot, 'scripts', name), ...arguments_], name);
 const nativeFlags = target.platform === 'linux' ? ['--development-linux'] : [];
 
 await npm('run', 'test:packaging');
@@ -52,7 +68,16 @@ if (target.platform === 'linux') {
     await copyFile(join(projectRoot, 'docs', 'WINDOWS_OFFLINE_README.txt'),
       join(projectRoot, 'release', 'README.zh-CN.txt'));
   }
-  await writeReleaseReport({ projectDirectory: projectRoot, platform: target.platform, arch: target.arch,
+  const report = await writeReleaseReport({ projectDirectory: projectRoot, platform: target.platform, arch: target.arch,
     artifacts: [artifact], validation: { smoke: 'passed', installedSmoke } });
+  if (process.env.GITHUB_STEP_SUMMARY) {
+    await appendFile(process.env.GITHUB_STEP_SUMMARY, [
+      '## Complete offline package', '',
+      ...report.artifacts.map(item => `- ${item.file}: **${item.decimalMB} MB**, SHA-256: \`${item.sha256}\``),
+      `- Unpacked application: ${report.unpacked.decimalMB} MB`,
+      `- Offline application smoke: ${report.validation.smoke}`,
+      `- Installed application smoke: ${report.validation.installedSmoke}`, '',
+    ].join('\n'));
+  }
   console.log(`Complete offline package: ${artifact}`);
 }
