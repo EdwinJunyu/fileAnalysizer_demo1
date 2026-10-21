@@ -135,8 +135,8 @@ Linux 验证不能代替 Windows/macOS 实机结果。原生 CI 尚未运行时�
 ### 2026-10-21 完整离线构建改进验证
 
 - 修复并回归 Windows Git 换行转换引起的固定许可 SHA-256 失败。
-- 修复 MSYS2 GNU tar 把 Windows 盘符当作远程主机的问题，以真实冒号归档回归验证。
-- `npm test`：191 项核心测试通过；`npm run test:packaging`：14 项打包规则与报告测试通过。
+- 修复 MSYS2 GNU tar 把 Windows 盘符当作远程主机、反斜杠当作转义字符的问题，以真实归档提取回归验证。
+- `npm test`：191 项核心测试通过；`npm run test:packaging`：15 项打包规则、报告及构建失败诊断测试通过。
 - 在 Linux 编译固定版本 FFmpeg/FFprobe 与可迁移 Perl，构建完整应用目录，
   执行真实 ASAR Worker、隔离 PATH、离线频谱、DOCX/PDF 隐私与六语言验证通过。
 - Windows 安装器及安装后验收仍须由原生 Windows 构建结果确认；这些 Linux 结果不代替 Windows 验收。

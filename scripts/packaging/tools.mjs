@@ -13,9 +13,10 @@ export const sourceIdsFor = platform => platform === 'win32'
   ? ['ffmpeg', 'zlib', 'exiftool', 'exiftoolWindows'] : ['ffmpeg', 'zlib', 'exiftool', 'perl', 'archiveZip'];
 
 export async function extractSourceArchive(archive, directory, { platform = process.platform, cwd = projectRoot } = {}) {
-  // MSYS2 GNU tar otherwise treats the colon in C:\\... as a remote host separator.
+  // GNU tar treats a drive colon as a remote host and backslashes as escape sequences.
+  const localPath = path => platform === 'win32' ? path.replaceAll('\\', '/') : path;
   await execute('tar', [...(platform === 'win32' ? ['--force-local'] : []),
-    '-xzf', archive, '--strip-components=1', '-C', directory], { cwd, timeout: 120_000 });
+    '-xzf', localPath(archive), '--strip-components=1', '-C', localPath(directory)], { cwd, timeout: 120_000 });
 }
 
 export async function sha256(path) {
