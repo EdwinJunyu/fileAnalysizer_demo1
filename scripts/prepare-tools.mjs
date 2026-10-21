@@ -80,8 +80,11 @@ if (target.platform === 'win32') {
       'word/document.xml': strToU8('<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body/></w:document>'),
       'docProps/core.xml': strToU8('<cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:creator>Unicode path author</dc:creator></cp:coreProperties>'),
     }));
-    const { stdout } = await execute(join(relocated, 'exiftool.exe'), ['-charset', 'filename=UTF8', '-json', document], { timeout: 30_000 });
-    if (JSON.parse(stdout)[0]?.Author !== 'Unicode path author') throw new Error('ExifTool cannot read DOCX metadata through Unicode paths.');
+    const { stdout, stderr } = await execute(join(relocated, 'exiftool.exe'), ['-charset', 'filename=UTF8', '-json', document], { timeout: 30_000 });
+    // DOCX dc:creator is emitted as Creator in ungrouped ExifTool JSON.
+    if (JSON.parse(stdout)[0]?.Creator !== 'Unicode path author') {
+      throw new Error(`ExifTool cannot read DOCX metadata through Unicode paths: ${stdout.slice(0, 3000)} ${stderr.slice(0, 1000)}`);
+    }
     console.log('Windows ExifTool Unicode runtime and input-path verification passed.');
   } finally { await rm(probe, { recursive: true, force: true }); }
 }
